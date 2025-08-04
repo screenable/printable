@@ -153,3 +153,104 @@ export default fp(async (fastify) => {
     done();
   });
 });
+
+
+import fp from 'fastify-plugin';
+import { Gpio as PigpioGpio } from 'pigpio';
+import { bus } from '../event-bus';
+import { CONFIG } from '../config';
+
+type GpioLike = {
+  on: (event: 'interrupt', cb: (level: 0 | 1) => void) => void;
+  disableInterrupt: () => void;
+};
+
+export default fp(async (fastify) => {
+  let gpio: GpioLike;
+
+  if (process.platform === 'linux') {
+    fastify.log.info(`🐷 Initialisiere pigpio für GPIO${CONFIG.GPIO_PIN}`);
+
+    const realGpio = new PigpioGpio(CONFIG.GPIO_PIN, {
+      mode: PigpioGpio.INPUT,
+      alert: true,
+    });
+
+    // optional: software-debounce (in ms)
+    const debounceMs = CONFIG.DEBOUNCE_MS ?? 10;
+    realGpio.glitchFilter(debounceMs * 1000); // pigpio erwartet µs
+
+    gpio = {
+      on: (event, cb) => {
+        if (event === 'interrupt') {
+          realGpio.on('alert', (level) => cb(level as 0 | 1));
+        }
+      },
+      disableInterrupt: () => {
+        realGpio.disableAlert();
+        realGpio.unwatchAll();
+        realGpio.digitalRead(); // forces final state read
+      },
+    };
+  } else {
+    console.warn('⚠️ GPIO stub active (non-Linux platform). No real GPIO will be accessed.');
+    gpio = {
+      on: (event, cb) => {
+        if (event === 'interrupt') {
+          setInterval(() => cb(1), 5000);
+          setInterval(() => cb(0), 5500);
+        }
+      },
+      disableInterrupt: () => { /* no-op */ },
+    };
+  }
+
+  gpio.on('interrupt', (value) => {
+    if (value === 1) {
+      fastify.log.info(`Button pressed on pin ${CONFIG.GPIO_PIN}`);
+      bus.emit('button.press', { pin: CONFIG.GPIO_PIN });
+    } else {
+      fastify.log.info(`Button released on pin ${CONFIG.GPIO_PIN}`);
+      bus.emit('button.release', { pin: CONFIG.GPIO_PIN });
+    }
+  });
+
+  fastify.addHook('onClose', (_instance, done) => {
+    gpio.disableInterrupt();
+    done();
+  });
+});
+
+
+
+Run `npm audit` for details.
+screenable@printable:~/dev/printable $ npm run dev
+
+> code-companion-node-ts-template@1.0.0 dev
+> nodemon -e ts,json,env --exec ts-node --files -r dotenv/config src/index.ts
+
+[nodemon] 3.1.10
+[nodemon] to restart at any time, enter `rs`
+[nodemon] watching path(s): *.*
+[nodemon] watching extensions: ts,json,env
+[nodemon] starting `ts-node --files -r dotenv/config src/index.ts`
+2025-08-04 11:53:36 initCheckPermitted: 
++---------------------------------------------------------+
+|Sorry, you don't have permission to run this program.    |
+|Try running as root, e.g. precede the command with sudo. |
++---------------------------------------------------------+
+
+
+{"level":30,"time":1754301216658,"pid":3840,"hostname":"printable","msg":"🐷 Initialisiere pigpio für GPIO17"}
+Error: pigpio error -1 in gpioInitialise
+    at initializePigpio (/home/screenable/dev/printable/node_modules/pigpio/pigpio.js:54:12)
+    at new Gpio (/home/screenable/dev/printable/node_modules/pigpio/pigpio.js:158:5)
+    at /home/screenable/dev/printable/src/plugins/gpio.plugin.ts:17:22
+    at Generator.next (<anonymous>)
+    at /home/screenable/dev/printable/src/plugins/gpio.plugin.ts:8:71
+    at new Promise (<anonymous>)
+    at __awaiter (/home/screenable/dev/printable/src/plugins/gpio.plugin.ts:4:12)
+    at /home/screenable/dev/printable/src/plugins/gpio.plugin.ts:11:37
+    at Plugin.exec (/home/screenable/dev/printable/node_modules/avvio/lib/plugin.js:125:28)
+    at Boot._loadPlugin (/home/screenable/dev/printable/node_modules/avvio/boot.js:432:10)
+[nodemon] app crashed - waiting for file changes before starting...
