@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { JobStatus, PrintJob } from './types/types';
-import escpos, { type Printer } from 'escpos';
+import escpos, { BITMAP_FORMAT_TYPE, type Printer } from 'escpos';
 escpos.Network = require('escpos-network');
 import { type FilledTemplate, FilledTemplateSchema } from './types/template.validation';
+
 const POLL_INTERVAL_MS = 3000;
 export async function startPrintWorker(server: FastifyInstance) {
   const supabase = server.supabase;
@@ -45,30 +46,62 @@ export async function startPrintWorker(server: FastifyInstance) {
         }
         for (const el of template.elements) {
           switch (el.type) {
+            case 'style':
+              printer.style(el.style);
+              console.log('Style gesetzt:', el.style);
+              break;
+            case 'char_spacing':
+              printer.spacing(el.value);
+              console.log('Char Spacing gesetzt:', el.value);
+              break;
+            case 'line_spacing':
+              printer.lineSpace(el.value);
+              console.log('Line Spacing gesetzt:', el.value);
+              break;
+            case 'font':
+              printer.font(el.value);
+              console.log('Font gesetzt:', el.value);
+              break;
+            case 'control':
+              printer.control(el.value);
+              console.log('Control gesetzt:', el.value);
+              break;
+            case 'draw_line':
+              printer.size(1, 1);
+              printer.font('A');
+              printer.style('NORMAL');
+              printer.spacing(0);
+              printer.lineSpace(0);
+              printer.drawLine();
+              console.log('Zeile gezeichnet');
+              break;
             case 'align':
               printer.align(el.value);
+              console.log('Alignement gesetzt:', el.value);
               break;
             case 'text':
               if (el.size) printer.size(el.size[0], el.size[1]);
               printer.text(el.content);
+              console.log('Text gedruckt:', el.content);
               break;
             case 'qrcode':
               await qrimageAsync(printer, el.content);
+              console.log('QR-Code gedruckt:', el.content);
               break;
             case 'cut':
               printer.cut(false);
+              console.log('Drucker geschnitten');
               break;
-            case 'image':
-              escpos.Image.load(el.path, async image => {
-                if (image instanceof escpos.Image) {
-                  await printer.image(
-                    image as escpos.Image,
-                    (el.density as escpos.BITMAP_FORMAT_TYPE) || 'D24',
-                  );
-                }
-              });
+            case 'image': {
+              console.log('Bild druck gestartet:', el.path);
+              const image = await loadImageAsync(el.path);
+              printer.size(1, 1);
+              printer.image(image, (el.density as BITMAP_FORMAT_TYPE) || 'D24');
+              console.log('Bild in Queue gelegt:', el.path);
               break;
+            }
             case 'barcode':
+              console.log('Barcode gedruckt:', el.code);
               if (el.options) {
                 printer.barcode(el.code, el.barcodeType, el.options);
               } else {
@@ -77,15 +110,24 @@ export async function startPrintWorker(server: FastifyInstance) {
               break;
 
             case 'feed':
+              console.log('Feed gedruckt:', el.lines);
               printer.feed(el.lines || 1);
               break;
             default:
               console.warn('Unbekannter Element-Typ');
           }
         }
-
-        printer.cut(false);
-        printer.close();
+        setTimeout(() => {
+          printer.size(1, 1);
+          printer.style('NORMAL');
+          printer.align('LT');
+          printer.spacing(0);
+          printer.lineSpace(0);
+          printer.cut(false);
+          console.log('cut gedruckt');
+          printer.close();
+          console.log('Printer geschlossen');
+        }, 200);
 
         await mark(job.id, 'done');
         console.log('Job erfolgreich gedruckt:', job.id);
@@ -96,10 +138,27 @@ export async function startPrintWorker(server: FastifyInstance) {
     });
   };
 
-  function qrimageAsync(printer: Printer, content: string, options = { type: 'png', mode: '' }) {
+  // Helfer: escpos.Image.load in ein Promise wrappen
+  function loadImageAsync(path: string): Promise<escpos.Image> {
+    return new Promise((resolve, reject) => {
+      escpos.Image.load(path, (image: escpos.Image | Error) => {
+        if (!image) return reject(new Error('Bild konnte nicht geladen werden'));
+        resolve(image as escpos.Image);
+      });
+    });
+  }
+
+  async function qrimageAsync(
+    printer: Printer,
+    content: string,
+    options = { type: 'png', mode: '', size: 14 },
+  ) {
     return new Promise<void>((resolve, reject) => {
+      console.log('QR-Promise startet');
       printer.qrimage(content, options, err => {
         if (err) return reject(err);
+        printer.feed(10);
+        console.log('QR-Promise resolve');
         resolve();
       });
     });

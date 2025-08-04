@@ -8,7 +8,7 @@ type GpioLike = {
   disableInterrupt: () => void;
 };
 
-export default fp(async (fastify) => {
+export default fp(async fastify => {
   let gpio: GpioLike;
 
   if (process.platform === 'linux') {
@@ -26,7 +26,7 @@ export default fp(async (fastify) => {
     gpio = {
       on: (event, cb) => {
         if (event === 'interrupt') {
-          realGpio.on('alert', (level) => cb(level as 0 | 1));
+          realGpio.on('alert', (level: number) => cb(level as 0 | 1));
         }
       },
       disableInterrupt: () => {
@@ -44,11 +44,13 @@ export default fp(async (fastify) => {
           setInterval(() => cb(0), 5500);
         }
       },
-      disableInterrupt: () => { /* no-op */ },
+      disableInterrupt: () => {
+        /* no-op */
+      },
     };
   }
 
-  gpio.on('interrupt', (value) => {
+  gpio.on('interrupt', value => {
     if (value === 1) {
       fastify.log.info(`Button pressed on pin ${CONFIG.GPIO_PIN}`);
       bus.emit('button.press', { pin: CONFIG.GPIO_PIN });

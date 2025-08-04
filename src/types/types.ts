@@ -33,6 +33,13 @@ export type BarcodeElement = {
   barcodeType: 'UPC-A' | 'UPC-E' | 'EAN13' | 'EAN8' | 'CODE39' | 'ITF' | 'NW7';
   options?: BarcodeOptions;
 };
+
+export type StyleElement = { type: 'style'; style: 'NORMAL' | 'B' | 'U' | 'I' };
+export type CharSpacing = { type: 'char_spacing'; value: number };
+export type FontElement = { type: 'font'; value: 'A' | 'B' };
+export type LineSpacing = { type: 'line_spacing'; value: number };
+export type ControlElement = { type: 'control'; value: 'LF' | 'FF' | 'CR' | 'HT' | 'VT' };
+export type DrawLine = { type: 'draw_line' };
 export type FeedElement = { type: 'feed'; lines?: number };
 export type QRCodeElement = { type: 'qrcode'; content: string };
 export type CutElement = { type: 'cut'; part?: boolean };
@@ -43,4 +50,10 @@ export type TemplateElement =
   | CutElement
   | ImageElement
   | BarcodeElement
-  | FeedElement;
+  | FeedElement
+  | FontElement
+  | StyleElement
+  | CharSpacing
+  | LineSpacing
+  | ControlElement
+  | DrawLine;

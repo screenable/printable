@@ -5,6 +5,35 @@ const AlignElementSchema = z.object({
   value: z.enum(['CT', 'LT', 'RT']),
 });
 
+export const ControlElementSchema = z.object({
+  type: z.literal('control'),
+  value: z.enum(['LF', 'FF', 'CR', 'HT', 'VT']),
+});
+
+export const DrawLineSchema = z.object({
+  type: z.literal('draw_line'),
+});
+
+export const StyleElementSchema = z.object({
+  type: z.literal('style'),
+  style: z.enum(['NORMAL', 'B', 'U', 'I']),
+});
+
+export const CharSpacingSchema = z.object({
+  type: z.literal('char_spacing'),
+  value: z.number().int().min(0),
+});
+
+export const LineSpacingSchema = z.object({
+  type: z.literal('line_spacing'),
+  value: z.number().int().min(0),
+});
+
+export const FontElementSchema = z.object({
+  type: z.literal('font'),
+  value: z.enum(['A', 'B']),
+});
+
 export const TextElementSchema = z.object({
   type: z.literal('text'),
   content: z.string(),
@@ -58,6 +87,12 @@ export const TemplateElementSchema = z.union([
   QRCodeElementSchema,
   CutElementSchema,
   FeedElementSchema,
+  FontElementSchema,
+  StyleElementSchema,
+  CharSpacingSchema,
+  LineSpacingSchema,
+  ControlElementSchema,
+  DrawLineSchema,
 ]);
 
 export const FilledTemplateSchema = z.object({
@@ -74,3 +109,9 @@ export type TemplateElement = z.infer<typeof TemplateElementSchema>;
 export type FilledTemplate = z.infer<typeof FilledTemplateSchema>;
 export type BarcodeOptions = z.infer<typeof BarcodeOptionsSchema>;
 export type FeedElement = z.infer<typeof FeedElementSchema>;
+export type FontElement = z.infer<typeof FontElementSchema>;
+export type StyleElement = z.infer<typeof StyleElementSchema>;
+export type CharSpacing = z.infer<typeof CharSpacingSchema>;
+export type LineSpacing = z.infer<typeof LineSpacingSchema>;
+export type ControlElement = z.infer<typeof ControlElementSchema>;
+export type DrawLine = z.infer<typeof DrawLineSchema>;
