@@ -14,3 +14,72 @@ Error: EINVAL: invalid argument, write
   code: 'EINVAL',
   syscall: 'write'
 }
+
+
+
+
+> code-companion-node-ts-template@1.0.0 dev-rasp
+> ts-node src/index.ts
+
+Start
+Error: EINVAL: invalid argument, write
+    at Object.writeFileSync (node:fs:2425:20)
+    at exportGpio (/home/screenable/dev/printable/node_modules/onoff/onoff.js:18:8)
+    at new Gpio (/home/screenable/dev/printable/node_modules/onoff/onoff.js:172:36)
+    at Object.<anonymous> (/home/screenable/dev/printable/src/index.ts:40:16)
+    at Module._compile (node:internal/modules/cjs/loader:1688:14)
+    at Module.m._compile (/home/screenable/dev/printable/node_modules/ts-node/src/index.ts:1618:23)
+    at node:internal/modules/cjs/loader:1820:10
+    at Object.require.extensions.<computed> [as .ts] (/home/screenable/dev/printable/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1423:32)
+    at Function._load (node:internal/modules/cjs/loader:1246:12) {
+  errno: -22,
+  code: 'EINVAL',
+  syscall: 'write'
+}
+
+
+/* import gpioPlugin from './plugins/gpio.plugin';
+import keyboardPlugin from './plugins/keyboard.plugin';
+import supabasePlugin from './plugins/supabase.plugin';
+import { startPrintWorker } from './print-worker';
+import server from './server';
+
+const port = Number(process.env.PORT) || 3000;
+
+
+async function main() {
+  await server.register(keyboardPlugin);
+  await server.register(supabasePlugin)
+  await server.register(gpioPlugin)
+  await startPrintWorker(server)
+  await server.listen(
+  {
+    port,
+    host: '0.0.0.0',
+  },
+  (err, address) => {
+    if (err) {
+      server.log.error(err);
+      process.exit(1);
+    }
+    server.log.info(`Server running on ${address}`);
+  },
+);
+ 
+
+}
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+}); */
+
+import { Gpio } from "onoff";
+console.log("Start")
+try{
+  const pin = 17
+  const gpio = new Gpio(pin,'in','both', {debounceTimeout:10})
+
+}catch(err){
+  console.log(err)
+}

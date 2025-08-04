@@ -1,4 +1,4 @@
-import gpioPlugin from './plugins/gpio.plugin';
+/* import gpioPlugin from './plugins/gpio.plugin';
 import keyboardPlugin from './plugins/keyboard.plugin';
 import supabasePlugin from './plugins/supabase.plugin';
 import { startPrintWorker } from './print-worker';
@@ -31,4 +31,14 @@ async function main() {
 main().catch(err => {
   console.error(err);
   process.exit(1);
-});
+}); */
+
+import { Gpio } from "onoff";
+console.log("Start")
+try{
+  const pin = 17
+  const gpio = new Gpio(pin,'in','both', {debounceTimeout:10})
+
+}catch(err){
+  console.log(err)
+}
