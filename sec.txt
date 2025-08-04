@@ -1,6 +1,16 @@
-ENVIRONMENT=development
-PORT=3000
-DEBOUNCE_MS=10
-GPIO_PIN=17
-SUPABASE_URL=https://tqitskvpekexkihqufdj.supabase.co
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxaXRza3ZwZWtleGtpaHF1ZmRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4Nzg4OTQsImV4cCI6MjA2OTQ1NDg5NH0.ZtWC4j4t_SvcOyl3LSTMASkJz8AyDBL0ACm5
+[nodemon] starting `ts-node --files -r dotenv/config src/index.ts`
+Error: EINVAL: invalid argument, write
+    at Object.writeFileSync (node:fs:2425:20)
+    at exportGpio (/home/screenable/dev/printable/node_modules/onoff/onoff.js:18:8)
+    at new Gpio (/home/screenable/dev/printable/node_modules/onoff/onoff.js:172:36)
+    at /home/screenable/dev/printable/src/plugins/gpio.plugin.ts:16:22
+    at Generator.next (<anonymous>)
+    at /home/screenable/dev/printable/src/plugins/gpio.plugin.ts:8:71
+    at new Promise (<anonymous>)
+    at __awaiter (/home/screenable/dev/printable/src/plugins/gpio.plugin.ts:4:12)
+    at /home/screenable/dev/printable/src/plugins/gpio.plugin.ts:9:37
+    at Plugin.exec (/home/screenable/dev/printable/node_modules/avvio/lib/plugin.js:125:28) {
+  errno: -22,
+  code: 'EINVAL',
+  syscall: 'write'
+}
