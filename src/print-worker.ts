@@ -4,7 +4,7 @@ import escpos, { type BITMAP_FORMAT_TYPE, type Printer } from 'escpos';
 escpos.Network = require('escpos-network');
 import { type FilledTemplate, FilledTemplateSchema } from './types/template.validation';
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 200;
 export async function startPrintWorker(server: FastifyInstance) {
   const supabase = server.supabase;
 
@@ -87,6 +87,12 @@ export async function startPrintWorker(server: FastifyInstance) {
             case 'qrcode':
               await qrimageAsync(printer, el.content);
               console.log('QR-Code gedruckt:', el.content);
+              setTimeout(() => {
+                console.log('QR-Code feed:', el.content);
+                printer.feed(12)
+              }, 300);
+              
+              
               break;
             case 'cut':
               printer.cut(false);
@@ -117,17 +123,18 @@ export async function startPrintWorker(server: FastifyInstance) {
               console.warn('Unbekannter Element-Typ');
           }
         }
-        setTimeout(() => {
+        
           printer.size(1, 1);
           printer.style('NORMAL');
           printer.align('LT');
           printer.spacing(0);
           printer.lineSpace(0);
+          printer.feed(6)
           printer.cut(false);
           console.log('cut gedruckt');
           printer.close();
           console.log('Printer geschlossen');
-        }, 200);
+       
 
         await mark(job.id, 'done');
         console.log('Job erfolgreich gedruckt:', job.id);
@@ -151,13 +158,12 @@ export async function startPrintWorker(server: FastifyInstance) {
   async function qrimageAsync(
     printer: Printer,
     content: string,
-    options = { type: 'png', mode: '', size: 14 },
+    options = { type: 'png', mode: '', size: 10},
   ) {
     return new Promise<void>((resolve, reject) => {
       console.log('QR-Promise startet');
       printer.qrimage(content, options, err => {
         if (err) return reject(err);
-        printer.feed(10);
         console.log('QR-Promise resolve');
         resolve();
       });
