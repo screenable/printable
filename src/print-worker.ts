@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { JobStatus, PrintJob } from './types/types';
-import escpos, { BITMAP_FORMAT_TYPE, type Printer } from 'escpos';
+import escpos, { type BITMAP_FORMAT_TYPE, type Printer } from 'escpos';
 escpos.Network = require('escpos-network');
 import { type FilledTemplate, FilledTemplateSchema } from './types/template.validation';
 
