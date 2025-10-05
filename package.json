@@ -27,7 +27,7 @@
     "zod": "^4.0.14"
   },
   "dependencies": {
-    "@fastify/autoload": "^6.3.0",
+    "@fastify/autoload": "^6.3.1",
     "@supabase/supabase-js": "^2.53.0",
     "emit-keypress": "^1.0.1",
     "escpos": "^3.0.0-alpha.6",
