@@ -1,5 +1,6 @@
 import gpioPlugin from './plugins/gpio.plugin';
 import keyboardPlugin from './plugins/keyboard.plugin';
+import soundPlugin from './plugins/sound.plugin';
 import supabasePlugin from './plugins/supabase.plugin';
 import { startPrintWorker } from './print-worker';
 import server from './server';
@@ -10,6 +11,7 @@ const port = Number(process.env.PORT) || 3000;
 async function main() {
   await server.register(keyboardPlugin);
   await server.register(supabasePlugin)
+  await server.register(soundPlugin)
   await server.register(gpioPlugin)
   await startPrintWorker(server)
   await server.listen(

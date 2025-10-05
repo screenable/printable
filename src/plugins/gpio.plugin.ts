@@ -1,5 +1,4 @@
 import fp from 'fastify-plugin';
-import { Gpio as PigpioGpio } from 'pigpio';
 import { bus } from '../event-bus';
 import { CONFIG } from '../config';
 
@@ -11,32 +10,39 @@ type GpioLike = {
 export default fp(async fastify => {
   let gpio: GpioLike;
 
-  if (process.platform === 'linux') {
-    fastify.log.info(`🐷 Initialisiere pigpio für GPIO${CONFIG.GPIO_PIN}`);
+  // Try to initialize real GPIO, fall back to stub on any error
+  try {
+    if (process.platform === 'linux') {
+      fastify.log.info(`🐷 Initialisiere pigpio für GPIO${CONFIG.GPIO_PIN}`);
 
-    const realGpio = new PigpioGpio(CONFIG.GPIO_PIN, {
-      mode: PigpioGpio.INPUT,
-      alert: true,
-    });
+      // Import pigpio only when on Linux platform
+      const { Gpio: PigpioGpio } = await import('pigpio');
+      const realGpio = new PigpioGpio(CONFIG.GPIO_PIN, {
+        mode: PigpioGpio.INPUT,
+        alert: true,
+      });
 
-    // optional: software-debounce (in ms)
-    const debounceMs = CONFIG.DEBOUNCE_MS ?? 10;
-    realGpio.glitchFilter(debounceMs * 1000); // pigpio erwartet µs
+      // optional: software-debounce (in ms)
+      const debounceMs = CONFIG.DEBOUNCE_MS ?? 10;
+      realGpio.glitchFilter(debounceMs * 1000); // pigpio erwartet µs
 
-    gpio = {
-      on: (event, cb) => {
-        if (event === 'interrupt') {
-          realGpio.on('alert', (level: number) => cb(level as 0 | 1));
-        }
-      },
-      disableInterrupt: () => {
-        realGpio.disableAlert();
-        realGpio.removeAllListeners('alert');
-        realGpio.digitalRead(); // forces final state read
-      },
-    };
-  } else {
-    console.warn('⚠️ GPIO stub active (non-Linux platform). No real GPIO will be accessed.');
+      gpio = {
+        on: (event, cb) => {
+          if (event === 'interrupt') {
+            realGpio.on('alert', (level: number) => cb(level as 0 | 1));
+          }
+        },
+        disableInterrupt: () => {
+          realGpio.disableAlert();
+          realGpio.removeAllListeners('alert');
+          realGpio.digitalRead(); // forces final state read
+        },
+      };
+    } else {
+      throw new Error('Not a Linux platform');
+    }
+  } catch (error) {
+    fastify.log.warn('⚠️ GPIO stub active (pigpio not available or non-Raspberry Pi platform). No real GPIO will be accessed.');
     gpio = {
       on: (event, cb) => {
         if (event === 'interrupt') {
