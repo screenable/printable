@@ -14,7 +14,10 @@ export default fp(async fastify => {
   // Initialize VoucherHelper if API key is configured
   let voucherHelper: VoucherHelper | null = null;
   if (CONFIG.VOUCHER_API_KEY) {
-    voucherHelper = new VoucherHelper(CONFIG.VOUCHER_API_BASE_URL, CONFIG.VOUCHER_API_KEY);
+    voucherHelper = new VoucherHelper(
+      CONFIG.VOUCHER_API_BASE_URL,
+      'EHF3ZE7-4JYMYZC-G2E5JFN-5VNCDZD',
+    );
     fastify.log.info('VoucherHelper initialized');
   } else {
     fastify.log.warn('VOUCHER_API_KEY nicht gesetzt – VoucherHelper deaktiviert.');
@@ -25,26 +28,25 @@ export default fp(async fastify => {
   let lastAt = 0;
 
   const onPress = async () => {
-
     const now = Date.now();
     if (now - lastAt < COOLDOWN) return;
     lastAt = now;
 
     try {
-      const rnd = Math.random() < 0.5
-      let requestBody = {}
-      
-      if(rnd){
+      const rnd = Math.random() < 0.5;
+      let requestBody = {};
+
+      if (rnd) {
         requestBody = {
-        template_name: 'edeka-demo',
-        data:{
-          percent: Math.floor( Math.random()*10)
-        }
-      }
+          template_name: 'edeka-demo',
+          data: {
+            percent: Math.floor(Math.random() * 10),
+          },
+        };
       } else {
         // Use VoucherHelper if available, otherwise generate random code
         let code: string;
-        
+
         if (voucherHelper) {
           // Fetch voucher code from API for category '5001' (example category)
           const voucherCode = await voucherHelper.getVoucherCode('5001');
@@ -54,15 +56,15 @@ export default fp(async fastify => {
           // Fallback to random code generation
           code = (Math.random() + 1).toString(36).substring(7).toUpperCase();
         }
-        
+
         requestBody = {
           template_name: 'edeka-demo-2',
           data: {
-            code: code
-          }
-        }
+            code: code,
+          },
+        };
       }
-      
+
       const res = await fetch(url, {
         method: 'POST',
         headers: {
