@@ -1,4 +1,5 @@
 // src/helpers/voucher-helper.ts
+import axios, { type AxiosInstance } from 'axios';
 
 export interface VoucherResponse {
   code?: string;
@@ -7,12 +8,14 @@ export interface VoucherResponse {
 }
 
 export class VoucherHelper {
-  private baseURL: string;
-  private apiKey: string;
+  private voucherApi: AxiosInstance;
 
   constructor(baseURL: string, apiKey: string) {
-    this.baseURL = baseURL;
-    this.apiKey = apiKey;
+    this.voucherApi = axios.create({
+      baseURL: baseURL,
+      timeout: 5000,
+      headers: { 'X-API-KEY': apiKey },
+    });
   }
 
   /**
@@ -22,28 +25,21 @@ export class VoucherHelper {
    */
   async getVoucherCode(category: string): Promise<string | null> {
     try {
-      const url = `${this.baseURL}/voucher-code/${category}`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'X-API-KEY': this.apiKey,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        console.error(`Failed to fetch voucher code for category ${category}: ${response.status} ${response.statusText}`);
-        return null;
-      }
-
-      const data: VoucherResponse = await response.json();
+      const voucherResponse = await this.voucherApi.get<VoucherResponse>(`/voucher-code/${category}`);
       
-      // Return the code from the response, or the entire data if it's a string
-      if (typeof data === 'string') {
-        return data;
+      if (voucherResponse.status === 200) {
+        const { data } = voucherResponse;
+        
+        // Return the code from the response, or the entire data if it's a string
+        if (typeof data === 'string') {
+          return data;
+        }
+        
+        return data.code || null;
       }
       
-      return data.code || null;
+      console.error(`Failed to fetch voucher code for category ${category}: ${voucherResponse.status}`);
+      return null;
     } catch (error) {
       console.error(`Error fetching voucher code for category ${category}:`, error);
       return null;
