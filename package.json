@@ -17,6 +17,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/escpos": "^2.5.5",
+    "@types/node": "^24.7.2",
     "@types/play-sound": "^1.1.2",
     "@types/supertest": "^6.0.3",
     "dotenv": "^16.5.0",
@@ -30,6 +31,7 @@
   "dependencies": {
     "@fastify/autoload": "^6.3.0",
     "@supabase/supabase-js": "^2.53.0",
+    "axios": "^1.12.2",
     "emit-keypress": "^1.0.1",
     "escpos": "^3.0.0-alpha.6",
     "escpos-network": "^3.0.0-alpha.5",
@@ -39,6 +41,7 @@
     "install": "^0.13.0",
     "onoff": "^6.0.3",
     "pigpio": "^3.3.1",
+    "piixel": "^1.2.2",
     "play-sound": "^1.1.6"
   }
 }

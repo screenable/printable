@@ -15,8 +15,8 @@ declare module 'fastify' {
 }
 
 export default fp(async fastify => {
-  // 🎧 Nur aplay verwenden (WAV-kompatibel)
-  const audio = player({ players: ['aplay'] });
+  // Player-Instanz
+  const audio = player({player:'aplay'});
 
   // 📁 Absoluter Pfad zur WAV-Datei (nicht relativ!)
   const soundFile = path.resolve(__dirname, '..', 'assets', 'sounds', 'beep.wav');
