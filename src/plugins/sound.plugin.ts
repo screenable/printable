@@ -14,7 +14,7 @@ declare module 'fastify' {
 
 export default fp(async fastify => {
   // Player-Instanz
-  const audio = player();
+  const audio = player({player:'aplay'});
 
   const soundFile = '../assets/sounds/beep.mp3';
 
