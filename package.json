@@ -30,6 +30,7 @@
   "dependencies": {
     "@fastify/autoload": "^6.3.0",
     "@supabase/supabase-js": "^2.53.0",
+    "axios": "^1.12.2",
     "emit-keypress": "^1.0.1",
     "escpos": "^3.0.0-alpha.6",
     "escpos-network": "^3.0.0-alpha.5",
