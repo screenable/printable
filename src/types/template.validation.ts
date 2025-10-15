@@ -1,117 +1,232 @@
 import { z } from 'zod';
 
-const AlignElementSchema = z.object({
-  type: z.literal('align'),
-  value: z.enum(['CT', 'LT', 'RT']),
+/* ----------------- Einzelbefehle ----------------- */
+
+// 1. text(value: string)
+export const TextSchema = z.object({
+  type: z.literal('text'),
+  value: z.string(),
 });
 
-export const ControlElementSchema = z.object({
-  type: z.literal('control'),
-  value: z.enum(['LF', 'FF', 'CR', 'HT', 'VT']),
+// 2. newline(count?: number)
+export const NewlineSchema = z.object({
+  type: z.literal('newline'),
+  count: z.number().int().min(1).optional(),
 });
 
-export const DrawLineSchema = z.object({
-  type: z.literal('draw_line'),
+// 3. line(value: string)
+export const LineSchema = z.object({
+  type: z.literal('line'),
+  value: z.string(),
 });
 
-export const StyleElementSchema = z.object({
-  type: z.literal('style'),
-  style: z.enum(['NORMAL', 'B', 'U', 'I']),
+// 4. underline(value?: boolean | number)
+export const UnderlineSchema = z.object({
+  type: z.literal('underline'),
+  value: z.boolean().or(z.number().int()).optional(),
 });
 
-export const CharSpacingSchema = z.object({
-  type: z.literal('char_spacing'),
-  value: z.number().int().min(0),
+// 5. italic(value?: boolean)
+export const ItalicSchema = z.object({
+  type: z.literal('italic'),
+  value: z.boolean().optional(),
 });
 
-export const LineSpacingSchema = z.object({
-  type: z.literal('line_spacing'),
-  value: z.number().int().min(0),
+// 6. bold(value?: boolean)
+export const BoldSchema = z.object({
+  type: z.literal('bold'),
+  value: z.boolean().optional(),
 });
 
-export const FontElementSchema = z.object({
+// 7. invert(value?: boolean)
+export const InvertSchema = z.object({
+  type: z.literal('invert'),
+  value: z.boolean().optional(),
+});
+
+// 8. width(width: number)
+export const WidthSchema = z.object({
+  type: z.literal('width'),
+  width: z.number(),
+});
+
+// 9. height(height: number)
+export const HeightSchema = z.object({
+  type: z.literal('height'),
+  height: z.number(),
+});
+
+// 10. size(width: number | string, height?: number)
+export const SizeSchema = z.object({
+  type: z.literal('size'),
+  width: z.union([z.number(), z.string()]),
+  height: z.number().optional(),
+});
+
+// 11. font(value: 'A' | 'B')
+export const FontSchema = z.object({
   type: z.literal('font'),
   value: z.enum(['A', 'B']),
 });
 
-export const TextElementSchema = z.object({
-  type: z.literal('text'),
-  content: z.string(),
-  size: z.optional(
-    z.tuple([z.union([z.literal(1), z.literal(2)]), z.union([z.literal(1), z.literal(2)])]),
-  ), // nur 1 oder 2 erlaubt
-  align: z.optional(z.enum(['CT', 'LT', 'RT'])),
-  font: z.optional(z.enum(['A', 'B'])),
-  bold: z.optional(z.boolean()),
+// 12. align(value: 'left' | 'center' | 'right')
+export const AlignSchema = z.object({
+  type: z.literal('align'),
+  value: z.enum(['left', 'center', 'right']),
 });
 
-export const ImageElementSchema = z.object({
-  type: z.literal('image'),
-  path: z.string(),
-  density: z.optional(z.string()), // z.B. 's8', 'd8'
-  align: z.optional(z.enum(['CT', 'LT', 'RT'])),
+/* ----------------- Komplexe Befehle ----------------- */
+
+// 13. table(columns, data)
+const TableColumnSchema = z.object({
+  width: z.number().optional(),
+  marginLeft: z.number().optional(),
+  marginRight: z.number().optional(),
+  align: z.enum(['left', 'right']).optional(),
+  verticalAlign: z.enum(['top', 'bottom']).optional(),
 });
-export const BarcodeOptionsSchema = z.object({
-  width: z.number().int().min(1).max(5).default(1),
-  height: z.number().int().min(1).max(255).default(100),
-  includeParity: z.boolean().default(true),
-  position: z.enum(['OFF', 'ABV', 'BLW', 'BTH']).default('BLW'),
-  font: z.enum(['A', 'B']).default('A'),
+export const TableSchema = z.object({
+  type: z.literal('table'),
+  columns: z.array(TableColumnSchema),
+  data: z.array(z.array(z.union([z.string(), z.any()]))),
 });
-export const BarcodeElementSchema = z.object({
+
+// 14. rule(options?)
+export const RuleSchema = z.object({
+  type: z.literal('rule'),
+  style: z.enum(['none', 'single', 'double']).optional(),
+  width: z.number().optional(),
+});
+
+// 15. box(options, value)
+export const BoxOptionsSchema = z.object({
+  style: z.enum(['none', 'single', 'double']).optional(),
+  width: z.number().optional(),
+  marginLeft: z.number().optional(),
+  marginRight: z.number().optional(),
+  paddingLeft: z.number().optional(),
+  paddingRight: z.number().optional(),
+  align: z.enum(['left', 'right']),
+});
+export const BoxSchema = z.object({
+  type: z.literal('box'),
+  options: BoxOptionsSchema,
+  value: z.union([z.string(), z.any()]),
+});
+
+// 16. barcode(value, symbology, height?)
+export const BarcodeSchema = z.object({
   type: z.literal('barcode'),
-  code: z.string(),
-  barcodeType: z.enum(['UPC_A', 'UPC_E', 'EAN13', 'EAN8', 'CODE39', 'ITF', 'NW7']),
-  options: z.optional(BarcodeOptionsSchema),
+  value: z.string(),
+  symbology: z.enum(['upca', 'upce', 'ean13', 'ean8', 'coda39', 'itf', 'codabar']),
+  height: z.union([z.number(), z.record(z.any(), z.any())]).optional(),
 });
-export const QRCodeElementSchema = z.object({
+
+// 17. qrcode(value, options)
+export const QRCodeSchema = z.object({
   type: z.literal('qrcode'),
-  content: z.string(),
-  // kein size hier, wenn du Größe brauchst: QR als Bild vor-rendern und als image drucken
+  value: z.string(),
+  options: z.object({
+    model: z.union([z.literal(1), z.literal(2)]).optional(),
+    size: z
+      .union([
+        z.literal(1),
+        z.literal(2),
+        z.literal(3),
+        z.literal(4),
+        z.literal(5),
+        z.literal(6),
+        z.literal(7),
+        z.literal(8),
+      ])
+      .optional(),
+    errorlevel: z.enum(['l', 'm', 'q', 'h']).optional(),
+  }),
 });
 
-export const CutElementSchema = z.object({
+// 18. pdf417(value, options?)
+export const PDF417Schema = z.object({
+  type: z.literal('pdf417'),
+  value: z.string(),
+  options: z
+    .object({
+      width: z.number().optional(),
+      height: z.number().optional(),
+      columns: z.number().optional(),
+      rows: z.number().optional(),
+      errorlevel: z
+        .union([
+          z.literal(1),
+          z.literal(2),
+          z.literal(3),
+          z.literal(4),
+          z.literal(5),
+          z.literal(6),
+          z.literal(7),
+          z.literal(8),
+        ])
+        .optional(),
+      truncated: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+// 19. image(input, width, height, algorithm?, threshold?)
+export const ImageSchema = z.object({
+  type: z.literal('image'),
+  input: z.any(),
+  width: z.number(),
+  height: z.number(),
+  algorithm: z.string().optional(),
+  threshold: z.number().optional(),
+});
+
+// 20. pulse(device?, on?, off?)
+export const PulseSchema = z.object({
+  type: z.literal('pulse'),
+  device: z.enum(['0', '1']).optional(),
+  on: z.number().optional(),
+  off: z.number().optional(),
+});
+
+// 21. cut(value?)
+export const CutSchema = z.object({
   type: z.literal('cut'),
-  mode: z.optional(z.enum(['full', 'partial'])),
-});
-export const FeedElementSchema = z.object({
-  type: z.literal('feed'),
-  lines: z.optional(z.number().int().min(1)), // Anzahl Zeilen vorwärts, Default später im Renderer z.B. 1
+  value: z.enum(['full', 'partial']).optional(),
 });
 
-export const TemplateElementSchema = z.union([
-  AlignElementSchema,
-  TextElementSchema,
-  ImageElementSchema,
-  BarcodeElementSchema,
-  QRCodeElementSchema,
-  CutElementSchema,
-  FeedElementSchema,
-  FontElementSchema,
-  StyleElementSchema,
-  CharSpacingSchema,
-  LineSpacingSchema,
-  ControlElementSchema,
-  DrawLineSchema,
+/* ----------------- Union & Gesamt-Schema ----------------- */
+
+export const TemplateElementSchema = z.discriminatedUnion('type', [
+  TextSchema,
+  NewlineSchema,
+  LineSchema,
+  UnderlineSchema,
+  ItalicSchema,
+  BoldSchema,
+  InvertSchema,
+  WidthSchema,
+  HeightSchema,
+  SizeSchema,
+  FontSchema,
+  AlignSchema,
+  TableSchema,
+  RuleSchema,
+  BoxSchema,
+  BarcodeSchema,
+  QRCodeSchema,
+  PDF417Schema,
+  ImageSchema,
+  PulseSchema,
+  CutSchema,
 ]);
 
 export const FilledTemplateSchema = z.object({
+  encoding: z.string().optional(),
   elements: z.array(TemplateElementSchema),
 });
 
-export type AlignElement = z.infer<typeof AlignElementSchema>;
-export type TextElement = z.infer<typeof TextElementSchema>;
-export type ImageElement = z.infer<typeof ImageElementSchema>;
-export type BarcodeElement = z.infer<typeof BarcodeElementSchema>;
-export type QRCodeElement = z.infer<typeof QRCodeElementSchema>;
-export type CutElement = z.infer<typeof CutElementSchema>;
+/* ----------------- Typen-Exports ----------------- */
+
 export type TemplateElement = z.infer<typeof TemplateElementSchema>;
 export type FilledTemplate = z.infer<typeof FilledTemplateSchema>;
-export type BarcodeOptions = z.infer<typeof BarcodeOptionsSchema>;
-export type FeedElement = z.infer<typeof FeedElementSchema>;
-export type FontElement = z.infer<typeof FontElementSchema>;
-export type StyleElement = z.infer<typeof StyleElementSchema>;
-export type CharSpacing = z.infer<typeof CharSpacingSchema>;
-export type LineSpacing = z.infer<typeof LineSpacingSchema>;
-export type ControlElement = z.infer<typeof ControlElementSchema>;
-export type DrawLine = z.infer<typeof DrawLineSchema>;
