@@ -30,9 +30,9 @@ export default fp(async fastify => {
   let lastAt = 0;
 
   const CASES: VoucherCase[] = [
-    { price: 'Peanuts', category: '6001' },
+    { price: 'Peanut & Choco', category: '6001' },
     { price: 'Tortellini', category: '6002' },
-    { price: 'Gitterchips', category: '6004' },
+    { price: 'Gitter Chips', category: '6004' },
   ];
 
   const pickCase = (): VoucherCase => {
@@ -61,15 +61,19 @@ export default fp(async fastify => {
       } else {
         try {
           const voucherCode = await voucherHelper.getVoucherCode(chosen.category);
-          if (!voucherCode) throw new Error('Kein VoucherCode erhalten');
+          if (!voucherCode) {
+            requestBody.template_name = 'no-luck'
+          }else{
+            requestBody.data.price = chosen.price;
+            requestBody.data.code = voucherCode;
 
-          requestBody.data.price = chosen.price;
-          requestBody.data.code = voucherCode;
+            fastify.log.info(
+              { voucherCode, category: chosen.category, price: chosen.price },
+              'Voucher code fetched',
+            );
+          }
 
-          fastify.log.info(
-            { voucherCode, category: chosen.category, price: chosen.price },
-            'Voucher code fetched',
-          );
+          
         } catch (innerErr) {
           fastify.log.error({ err: innerErr, category: chosen.category }, 'VoucherHelper Fehler');
         }
