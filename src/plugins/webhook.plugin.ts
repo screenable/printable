@@ -3,6 +3,12 @@ import fp from 'fastify-plugin';
 import { bus } from '../event-bus';
 import { CONFIG } from '../config';
 import { VoucherHelper } from '../helpers/voucher-helper';
+import { config } from 'dotenv';
+
+type VoucherCase = {
+  price: string;
+  category: string;
+};
 
 export default fp(async fastify => {
   const url = CONFIG.WEBHOOK_URL;
@@ -14,70 +20,72 @@ export default fp(async fastify => {
   // Initialize VoucherHelper if API key is configured
   let voucherHelper: VoucherHelper | null = null;
   if (CONFIG.VOUCHER_API_KEY) {
-    voucherHelper = new VoucherHelper(
-      CONFIG.VOUCHER_API_BASE_URL,
-      'EHF3ZE7-4JYMYZC-G2E5JFN-5VNCDZD',
-    );
+    voucherHelper = new VoucherHelper(CONFIG.VOUCHER_API_BASE_URL, CONFIG.VOUCHER_API_KEY);
     fastify.log.info('VoucherHelper initialized');
   } else {
     fastify.log.warn('VOUCHER_API_KEY nicht gesetzt – VoucherHelper deaktiviert.');
   }
 
-  // einfacher Schutz gegen Prellen/Doppelklicks zusätzlich zur GPIO-Seite
   const COOLDOWN = CONFIG.WEBHOOK_COOLDOWN_MS;
   let lastAt = 0;
+
+  const CASES: VoucherCase[] = [
+    { price: 'Peanuts', category: '6001' },
+    { price: 'Tortellini', category: '6002' },
+    { price: 'Gitterchips', category: '6004' },
+  ];
+
+  const pickCase = (): VoucherCase => {
+    const i = Math.floor(Math.random() * CASES.length);
+    return CASES[i];
+  };
 
   const onPress = async () => {
     const now = Date.now();
     if (now - lastAt < COOLDOWN) return;
     lastAt = now;
 
+    const requestBody = {
+      template_name: 'edeka-voucher',
+      data: {
+        price: 'Fehler',
+        code: 'Fehler',
+      },
+    };
+
     try {
-      const rnd = Math.random() < 0.5;
-      let requestBody = {};
+      const chosen = pickCase();
 
-      if (rnd) {
-        requestBody = {
-          template_name: 'edeka-demo',
-          data: {
-            percent: Math.floor(Math.random() * 10),
-          },
-        };
+      if (!voucherHelper) {
+        fastify.log.error('VoucherHelper nicht verfügbar – sende Fehlerpayload');
       } else {
-        // Use VoucherHelper if available, otherwise generate random code
-        let code: string;
+        try {
+          const voucherCode = await voucherHelper.getVoucherCode(chosen.category);
+          if (!voucherCode) throw new Error('Kein VoucherCode erhalten');
 
-        if (voucherHelper) {
-          // Fetch voucher code from API for category '5001' (example category)
-          const voucherCode = await voucherHelper.getVoucherCode('5001');
-          code = voucherCode || (Math.random() + 1).toString(36).substring(7).toUpperCase();
-          fastify.log.info({ voucherCode, category: '5001' }, 'Voucher code fetched');
-        } else {
-          // Fallback to random code generation
-          code = (Math.random() + 1).toString(36).substring(7).toUpperCase();
+          requestBody.data.price = chosen.price;
+          requestBody.data.code = voucherCode;
+
+          fastify.log.info(
+            { voucherCode, category: chosen.category, price: chosen.price },
+            'Voucher code fetched',
+          );
+        } catch (innerErr) {
+          fastify.log.error({ err: innerErr, category: chosen.category }, 'VoucherHelper Fehler');
         }
-
-        requestBody = {
-          template_name: 'edeka-demo-2',
-          data: {
-            code: code,
-          },
-        };
       }
 
       const res = await fetch(url, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(requestBody),
       });
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        fastify.log.error({ status: res.status, text }, 'Webhook POST fehlgeschlagen');
+        fastify.log.error({ status: res.status, text, requestBody }, 'Webhook POST fehlgeschlagen');
       } else {
-        fastify.log.info('Webhook POST erfolgreich');
+        fastify.log.info({ requestBody }, 'Webhook POST erfolgreich');
       }
     } catch (err) {
       fastify.log.error({ err }, 'Webhook POST Fehler');
