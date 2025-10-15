@@ -21,7 +21,7 @@ export async function startPrintWorker(server: FastifyInstance) {
       return;
     }
     // Epson TM-m30III via USB (ggf. anpassen, wenn Netzwerkdrucker)
-    const device = new escpos.Network('192.168.1.219');
+    const device = new escpos.Network('192.168.0.200');
     const options = { encoding: '860' };
     const printer = new escpos.Printer(device, options);
     await mark(job.id, 'printing');
