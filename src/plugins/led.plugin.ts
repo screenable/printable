@@ -1,253 +1,135 @@
 import fp from 'fastify-plugin';
+import axios from 'axios';
 import { bus } from '../event-bus';
 import { CONFIG } from '../config';
-import { ws281x, StripType, type ValidGPIO, colorwheel } from 'piixel';
 
 type LedState = 'ready' | 'working' | 'done' | 'error';
 type IntervalId = ReturnType<typeof setInterval>;
 type TimeoutId = ReturnType<typeof setTimeout>;
-const ORDER = 'GRBW';
-const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-const rgb = (r: number, g: number, b: number) =>
-  ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
 
-function initWs281x(): { pixels: Uint32Array; length: number } | null {
-  const count = CONFIG.NEOPIXEL_COUNT;
-  if (!count || count <= 0) return null;
+// WLED JSON API client
+class WLEDClient {
+  private baseUrl: string;
+  private enabled: boolean;
 
-  const pixels = new Uint32Array(count);
+  constructor(ip?: string) {
+    if (!ip) {
+      this.enabled = false;
+      this.baseUrl = '';
+      return;
+    }
+    this.enabled = true;
+    this.baseUrl = `http://${ip}/json`;
+  }
 
-  ws281x.configure({
-    gpio: CONFIG.NEOPIXEL_GPIO as ValidGPIO, // z. B. 18 (PWM0)
-    leds: count,
-    resetOnExit:true,
-    type: StripType.WS2812_STRIP, // WS2812/WS2811 meist GRB
-  });
+  async setState(payload: object): Promise<void> {
+    if (!this.enabled) return;
+    try {
+      await axios.post(`${this.baseUrl}/state`, payload, {
+        timeout: 2000,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      console.error('WLED API error:', error);
+    }
+  }
 
-  ws281x.render(pixels); // alles aus
-  return { pixels, length: count };
-}
+  async turnOff(): Promise<void> {
+    await this.setState({ on: false });
+  }
 
-type Order4 = 'RGBW' | 'GRBW' | 'GBRW' | 'BGRW' | 'BRGW' | 'RBGW';
+  async setSolidColor(r: number, g: number, b: number, brightness = 128): Promise<void> {
+    await this.setState({
+      on: true,
+      bri: brightness,
+      seg: [{ col: [[r, g, b]] }],
+    });
+  }
 
-// biome-ignore lint/style/useDefaultParameterLast: <explanation>
-function packRGBW(r: number, g: number, b: number, w = 0, order: Order4): number {
-  // biome-ignore lint/style/useSingleVarDeclarator: <explanation>
-  const R = r & 0xff,
-    G = g & 0xff,
-    B = b & 0xff,
-    W = w & 0xff;
-  // 32-bit Wert: [byte3][byte2][byte1][byte0]
-  switch (order) {
-    case 'RGBW':
-      return (R << 24) | (G << 16) | (B << 8) | W;
-    case 'GRBW':
-      return (G << 24) | (R << 16) | (B << 8) | W;
-    case 'GBRW':
-      return (G << 24) | (B << 16) | (R << 8) | W;
-    case 'BGRW':
-      return (B << 24) | (G << 16) | (R << 8) | W;
-    case 'BRGW':
-      return (B << 24) | (R << 16) | (G << 8) | W;
-    case 'RBGW':
-      return (R << 24) | (B << 16) | (G << 8) | W;
+  async setEffect(effectId: number, speed = 128, intensity = 128, colors: number[][] = [[255, 205, 0]]): Promise<void> {
+    await this.setState({
+      on: true,
+      seg: [
+        {
+          fx: effectId,
+          sx: speed,
+          ix: intensity,
+          col: colors,
+        },
+      ],
+    });
+  }
+
+  async setBreathing(r: number, g: number, b: number): Promise<void> {
+    // Effect 2 is typically "Breathe" in WLED
+    await this.setEffect(2, 128, 200, [[r, g, b]]);
+  }
+
+  async setBlink(r: number, g: number, b: number, speed = 200): Promise<void> {
+    // Effect 1 is typically "Blink" in WLED
+    await this.setEffect(1, speed, 255, [[r, g, b]]);
+  }
+
+  async setRainbow(speed = 128): Promise<void> {
+    // Effect 9 is typically "Rainbow" in WLED
+    await this.setEffect(9, speed, 128);
+  }
+
+  async setChase(r: number, g: number, b: number, speed = 128): Promise<void> {
+    // Effect 28 is typically "Chase" in WLED
+    await this.setEffect(28, speed, 128, [[r, g, b]]);
   }
 }
 
-function makeBreathing(intervalMs: number, cb: (v01: number) => void): IntervalId {
-  const dt = 20;
-  let t = 0;
-  return setInterval(() => {
-    t = (t + dt) % intervalMs;
-    const phase = (t / intervalMs) * 2 * Math.PI;
-    cb((Math.sin(phase) + 1) / 2);
-  }, dt);
-}
-
 export default fp(async fastify => {
-  const ring = initWs281x();
+  const wled = new WLEDClient(CONFIG.WLED_IP);
 
   let state: LedState = 'ready';
   let progress = 0; // 0..1
-let offset = 0
-let swapFlag = false
   const intervals: IntervalId[] = [];
   const timeouts: TimeoutId[] = [];
+  
   const clearTimers = () => {
     for (const id of intervals.splice(0)) clearInterval(id);
     for (const id of timeouts.splice(0)) clearTimeout(id);
   };
 
-  // ——— helpers ———
-  const ringFillAll = (c: number) => {
-    
-    if (!ring) return;
-    const pixels = new Uint32Array(ring.length)
-    pixels.fill(c);
-    ws281x.render({pixels,brightness:0.6});
-  };
-
-  const ringBreathingAll = (color: [number, number, number], periodMs = 4000) => {
-    if (!ring) return;
-    const pixels = new Uint32Array(ring.length)
-     ws281x.render(pixels);
-     clearTimers()
-    const [r0, g0, b0] = color;
-    intervals.push(
-      makeBreathing(periodMs, v01 => {
-        const r = Math.round(r0 * v01);
-        const g = Math.round(g0 * v01);
-        const b = Math.round(b0 * v01);
-        ringFillAll(rgb(r, g, b));
-      }),
-    );
-  };
-
-  const ringSpinnerWithProgress = () => {
-    if (!ring) return;
-    let idx = 0;
-    clearTimers()
-    intervals.push(
-      setInterval(() => {
-        const n = ring.length;
-        const pCount = Math.round(clamp01(progress) * n);
-
-        // Fortschrittsbogen (grün)
-        for (let i = 0; i < n; i++) {
-          ring.pixels[i] = i < pCount ? rgb(0, 76, 150) : 0x000000;
-        }
-        // Spinner-Kopf (amber)
-        ring.pixels[idx % n] = rgb(255, 205, 0);
-        idx = (idx + 1) % n;
-
-        ws281x.render(ring.pixels);
-      }, 40),
-    );
-  };
-
-  const ringSuccessSweep = async () => {
-    if (!ring) return;
-    const n = ring.length;
-    for (let i = 0; i < n; i++) {
-      ring.pixels[i] = rgb(255, 205, 0);
-      ws281x.render(ring.pixels);
-      await sleep(15);
-    }
-    await sleep(CONFIG.LED_DONE_HOLD_MS);
-  };
-
-const flow = () =>{
-  if(!ring) return
-  const pixels = new Uint32Array(ring.length)
-  offset++
-  for (let i = 0; i < ring.length ; i++) {
-        pixels[i] = colorwheel((i * ring.length + offset) % 255)
-        
-      }
-      ws281x.render({pixels,brightness:0.3});
-}
-
-
-const swap = async() => {
-  if(!ring) return
-  const pixels = new Uint32Array(ring.length)
-  ws281x.render(pixels);
-  if(swapFlag) swapFlag =!swapFlag
-  for (let i = 0; i < ring.length ; i++) {
-        if(swapFlag){
-          if(i%2){
-            pixels[i] = rgb(255, 205, 0);
-          }else{
-             pixels[i] = rgb(0, 0, 0);
-          }
-        }else{
-           if(i%2){
-             pixels[i] = rgb(0, 0, 0);
-          }else{
-             pixels[i] = rgb(255, 205, 0);
-          }
-        }
-          
-      ws281x.render(pixels);
-       await sleep(45);
-        }
-        
-        
-      
-      
-}
-
-  function idle() {
-
-    intervals.push(
-    setInterval(() => {
-     ringFillAll(rgb(255, 205, 0));
-    }, 700)
-  )
-
-    /* const n = 16;
-    if (!ring) return;
-    let offset = 0
-    const show = (c: number) => {
-      offset++
-      const pixels = new Uint32Array(ring.length)
-      for (let i = 0; i < ring.length ; i++) {
-        pixels[i] = colorwheel((i * ring.length + offset) % 255)
-        
-      }
-      ws281x.render({pixels,brightness:0.8});
-    };
-
-    setTimeout(() => {
-          
-            show(0);
-        
-        }, 5000);
- */
-   
-  }
-
-  const ringErrorBlink = () => {
-    if (!ring) return;
-    intervals.push(
-      setInterval(() => {
-        const lit = (Date.now() >> 8) & 1;
-        ringFillAll(lit ? rgb(220, 0, 40) : 0);
-      }, 150),
-    );
-  };
-
   // ——— State-Maschine ———
-  const applyState = (next: LedState) => {
+  const applyState = async (next: LedState) => {
     state = next;
     clearTimers();
 
     switch (state) {
       case 'ready': {
-        // dezentes Blau-Atmen
-        //ringBreathingAll([255, 205, 0], 4200);
-        (async () => {
-          await idle();
-        })();
-        //testOrder();
+        // Breathing amber/blue effect
+        await wled.setBreathing(255, 205, 0);
         break;
       }
       case 'working': {
-        // Spinner + (optional) Progress
-        ringSpinnerWithProgress();
+        // Rainbow chase effect for working state
+        await wled.setRainbow(150);
         break;
       }
       case 'done': {
-        (async () => {
-          await ringSuccessSweep();
-          applyState('ready');
-        })();
+        // Success: solid green, then back to ready
+        await wled.setSolidColor(0, 255, 0, 200);
+        timeouts.push(
+          setTimeout(async () => {
+            await applyState('ready');
+          }, CONFIG.LED_DONE_HOLD_MS),
+        );
         break;
       }
       case 'error': {
-        ringErrorBlink();
-        timeouts.push(setTimeout(() => applyState('ready'), CONFIG.LED_ERROR_HOLD_MS));
+        // Error: blinking red
+        await wled.setBlink(220, 0, 40, 100);
+        timeouts.push(
+          setTimeout(async () => {
+            await applyState('ready');
+          }, CONFIG.LED_ERROR_HOLD_MS),
+        );
         break;
       }
     }
@@ -275,21 +157,21 @@ const swap = async() => {
   });
 
   bus.on('print.progress', (payload: { ratio?: number }) => {
-    if (typeof payload?.ratio === 'number') progress = clamp01(payload.ratio);
+    if (typeof payload?.ratio === 'number') {
+      progress = Math.max(0, Math.min(1, payload.ratio));
+    }
   });
 
   bus.on('print.done', () => applyState('done'));
   bus.on('print.error', () => applyState('error'));
 
   // Initial
-  applyState('ready');
+  await applyState('ready');
 
-  fastify.addHook('onClose', (_i, done) => {
+  fastify.addHook('onClose', async () => {
     clearTimers();
     try {
-      if (ring) ws281x.render(new Uint32Array(ring.length)); // alle LEDs aus
-      (ws281x as unknown as { reset?: () => void }).reset?.();
+      await wled.turnOff();
     } catch {}
-    done();
   });
 });
