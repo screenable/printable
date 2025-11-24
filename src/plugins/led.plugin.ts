@@ -3,6 +3,27 @@ import { bus } from '../event-bus';
 import { CONFIG } from '../config';
 import axios from 'axios';
 
+/**
+ * LED Plugin using WLED JSON API
+ * 
+ * This plugin controls LED strips via WLED (https://kno.wled.ge/)
+ * Configure WLED_IP environment variable to point to your WLED device
+ * 
+ * Common WLED Effect IDs (fx):
+ * - 0: Solid
+ * - 1: Blink
+ * - 2: Breathe
+ * - 9: Rainbow
+ * - 28: Chase
+ * - 51: Fire 2012
+ * - Full list: https://kno.wled.ge/features/effects/
+ * 
+ * Colors (col): RGB arrays e.g. [[255, 0, 0]] for red
+ * Brightness (bri): 0-255
+ * Speed (sx): 0-255
+ * Intensity (ix): 0-255
+ */
+
 type LedState = 'ready' | 'working' | 'done' | 'error';
 type IntervalId = ReturnType<typeof setInterval>;
 type TimeoutId = ReturnType<typeof setTimeout>;
