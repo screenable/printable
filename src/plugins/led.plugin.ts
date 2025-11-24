@@ -139,9 +139,13 @@ export default fp(async fastify => {
       }
       case 'done': {
         (async () => {
-          await setDoneState();
-          await sleep(CONFIG.LED_DONE_HOLD_MS);
-          applyState('ready');
+          try {
+            await setDoneState();
+            await sleep(CONFIG.LED_DONE_HOLD_MS);
+            applyState('ready');
+          } catch (error) {
+            fastify.log.error(`Error in done state: ${error}`);
+          }
         })();
         break;
       }
@@ -186,13 +190,12 @@ export default fp(async fastify => {
   // Initial
   applyState('ready');
 
-  fastify.addHook('onClose', (_i, done) => {
+  fastify.addHook('onClose', async (_i) => {
     clearTimers();
-    (async () => {
-      try {
-        await turnOff();
-      } catch {}
-      done();
-    })();
+    try {
+      await turnOff();
+    } catch (error) {
+      fastify.log.error(`Error turning off LEDs: ${error}`);
+    }
   });
 });
