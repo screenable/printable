@@ -136,23 +136,23 @@ export default fp(async fastify => {
   };
 
   // ——— Events & Fallback ———
-  bus.on('button.press', () => {
+  bus.on('button.press', async () => {
     progress = 0;
-    applyState('working');
+    await applyState('working');
 
     // Fallback: falls kein print.done kommt, nach X ms auf done gehen
     timeouts.push(
-      setTimeout(() => {
-        if (state === 'working') applyState('done');
+      setTimeout(async () => {
+        if (state === 'working') await applyState('done');
       }, CONFIG.LED_WORKING_FALLBACK_MS),
     );
   });
 
   // Idempotent, falls du zusätzlich print.start emitierst:
-  bus.on('print.start', () => {
+  bus.on('print.start', async () => {
     if (state !== 'working') {
       progress = 0;
-      applyState('working');
+      await applyState('working');
     }
   });
 
@@ -162,8 +162,8 @@ export default fp(async fastify => {
     }
   });
 
-  bus.on('print.done', () => applyState('done'));
-  bus.on('print.error', () => applyState('error'));
+  bus.on('print.done', async () => applyState('done'));
+  bus.on('print.error', async () => applyState('error'));
 
   // Initial
   await applyState('ready');
