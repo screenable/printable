@@ -16,6 +16,7 @@ const {
   LED_DONE_HOLD_MS,
   LED_ERROR_HOLD_MS,
   LED_WORKING_FALLBACK_MS,
+  WLED_IP,
 } = process.env;
 
 if (!WEBHOOK_URL) {
@@ -45,4 +46,6 @@ export const CONFIG = {
   LED_DONE_HOLD_MS: Number(LED_DONE_HOLD_MS ?? '2200'),
   LED_ERROR_HOLD_MS: Number(LED_ERROR_HOLD_MS ?? '3000'),
   LED_WORKING_FALLBACK_MS: Number(LED_WORKING_FALLBACK_MS ?? '10000'), // 10s
+
+  WLED_IP: WLED_IP, // WLED IP address for LED control via JSON API
 };
