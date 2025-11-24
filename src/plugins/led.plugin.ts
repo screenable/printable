@@ -63,22 +63,22 @@ class WLEDClient {
   }
 
   async setBreathing(r: number, g: number, b: number): Promise<void> {
-    // Effect 2 is typically "Breathe" in WLED
+    // Effect 2 is typically "Breathe" in WLED (may vary by version)
     await this.setEffect(2, 128, 200, [[r, g, b]]);
   }
 
   async setBlink(r: number, g: number, b: number, speed = 200): Promise<void> {
-    // Effect 1 is typically "Blink" in WLED
+    // Effect 1 is typically "Blink" in WLED (may vary by version)
     await this.setEffect(1, speed, 255, [[r, g, b]]);
   }
 
   async setRainbow(speed = 128): Promise<void> {
-    // Effect 9 is typically "Rainbow" in WLED
+    // Effect 9 is typically "Rainbow" in WLED (may vary by version)
     await this.setEffect(9, speed, 128);
   }
 
   async setChase(r: number, g: number, b: number, speed = 128): Promise<void> {
-    // Effect 28 is typically "Chase" in WLED
+    // Effect 28 is typically "Chase" in WLED (may vary by version)
     await this.setEffect(28, speed, 128, [[r, g, b]]);
   }
 }
@@ -87,7 +87,7 @@ export default fp(async fastify => {
   const wled = new WLEDClient(CONFIG.WLED_IP);
 
   let state: LedState = 'ready';
-  let progress = 0; // 0..1
+  let progress = 0; // 0..1 - stored for potential future progress visualization
   const intervals: IntervalId[] = [];
   const timeouts: TimeoutId[] = [];
   
