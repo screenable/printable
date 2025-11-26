@@ -34,7 +34,7 @@ export default fp(async fastify => {
       return new Promise<void>((resolve, reject) => {
         const start = Date.now();
 
-        const child = audio.play(soundFile, err => {
+        const child = audio.play(soundFile, {aplay:['-D', 'sysdefault:Headphones']}, err => {
           if (err) {
             fastify.log.error({
               msg: '❌ Fehler beim Abspielen des Sounds mit aplay',

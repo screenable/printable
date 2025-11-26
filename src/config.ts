@@ -18,6 +18,7 @@ const {
   LED_WORKING_FALLBACK_MS,
   VOUCHER_API_BASE_URL,
   VOUCHER_API_KEY,
+  WLED_IP,
 } = process.env;
 
 if (!WEBHOOK_URL) {
@@ -50,4 +51,6 @@ export const CONFIG = {
 
   VOUCHER_API_BASE_URL: VOUCHER_API_BASE_URL ?? 'https://api.screenable.io',
   VOUCHER_API_KEY: VOUCHER_API_KEY,
+  
+  WLED_IP: WLED_IP,
 };
