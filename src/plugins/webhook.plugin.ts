@@ -3,12 +3,8 @@ import fp from 'fastify-plugin';
 import { bus } from '../event-bus';
 import { CONFIG } from '../config';
 import { VoucherHelper } from '../helpers/voucher-helper';
-import { config } from 'dotenv';
-
-type VoucherCase = {
-  price: string;
-  category: string;
-};
+import { TemplateSelector } from '../helpers/template-selector';
+import { WEBHOOK_TEMPLATES, NO_LUCK_TEMPLATE } from '../config/webhook-templates.config';
 
 export default fp(async fastify => {
   const url = CONFIG.WEBHOOK_URL;
@@ -26,59 +22,89 @@ export default fp(async fastify => {
     fastify.log.warn('VOUCHER_API_KEY nicht gesetzt – VoucherHelper deaktiviert.');
   }
 
+  // Initialize template selector with configured templates
+  const templateSelector = new TemplateSelector(WEBHOOK_TEMPLATES);
+  fastify.log.info({ templateCount: WEBHOOK_TEMPLATES.length }, 'TemplateSelector initialized');
+
+  // Global cooldown to prevent button smashing
   const COOLDOWN = CONFIG.WEBHOOK_COOLDOWN_MS;
   let lastAt = 0;
 
-  const CASES: VoucherCase[] = [
-    { price: 'Peanut & Choco', category: '6001' },
-    { price: 'Tortellini', category: '6002' },
-    { price: 'Gitter Chips', category: '6004' },
-  ];
-
-  const pickCase = (): VoucherCase => {
-    const i = Math.floor(Math.random() * CASES.length);
-    return CASES[i];
-  };
-
   const onPress = async () => {
     const now = Date.now();
-    if (now - lastAt < COOLDOWN) return;
+    
+    // Check global cooldown
+    if (now - lastAt < COOLDOWN) {
+      fastify.log.debug('Button press ignored - global cooldown active');
+      return;
+    }
     lastAt = now;
 
-    const requestBody = {
-      template_name: 'edeka-voucher',
-      data: {
-        price: 'Fehler',
-        code: 'Fehler',
+    // Select template based on probabilities and per-template cooldowns
+    const selectedTemplate = templateSelector.selectTemplate();
+    
+    if (!selectedTemplate) {
+      fastify.log.warn('No eligible template available - all templates on cooldown');
+      return;
+    }
+
+    fastify.log.info(
+      { 
+        templateName: selectedTemplate.name, 
+        probability: selectedTemplate.probability,
+        cooldown: selectedTemplate.cooldownSeconds 
       },
+      'Template selected'
+    );
+
+    // Prepare request body with template data
+    const requestBody: { template_name: string; data: Record<string, unknown> } = {
+      template_name: selectedTemplate.name,
+      data: { ...selectedTemplate.data },
     };
 
     try {
-      const chosen = pickCase();
-
-      if (!voucherHelper) {
-        fastify.log.error('VoucherHelper nicht verfügbar – sende Fehlerpayload');
-      } else {
+      // If template requires a voucher, fetch it
+      if (selectedTemplate.voucherCategory && voucherHelper) {
         try {
-          const voucherCode = await voucherHelper.getVoucherCode(chosen.category);
+          const voucherCode = await voucherHelper.getVoucherCode(selectedTemplate.voucherCategory);
+          
           if (!voucherCode) {
-            requestBody.template_name = 'no-luck'
-          }else{
-            requestBody.data.price = chosen.price;
-            requestBody.data.code = voucherCode;
-
+            // No voucher available - use fallback template
+            requestBody.template_name = NO_LUCK_TEMPLATE.name;
+            requestBody.data = { ...NO_LUCK_TEMPLATE.data };
+            
             fastify.log.info(
-              { voucherCode, category: chosen.category, price: chosen.price },
-              'Voucher code fetched',
+              { category: selectedTemplate.voucherCategory },
+              'No voucher available - using fallback template'
+            );
+          } else {
+            // Add voucher code to data
+            requestBody.data.code = voucherCode;
+            
+            fastify.log.info(
+              { 
+                voucherCode, 
+                category: selectedTemplate.voucherCategory, 
+                templateName: selectedTemplate.name 
+              },
+              'Voucher code fetched successfully'
             );
           }
-
-          
         } catch (innerErr) {
-          fastify.log.error({ err: innerErr, category: chosen.category }, 'VoucherHelper Fehler');
+          fastify.log.error(
+            { err: innerErr, category: selectedTemplate.voucherCategory },
+            'VoucherHelper error - sending template without voucher'
+          );
         }
+      } else if (selectedTemplate.voucherCategory && !voucherHelper) {
+        fastify.log.warn(
+          { templateName: selectedTemplate.name },
+          'Template requires voucher but VoucherHelper not available'
+        );
       }
 
+      // Send webhook request
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -87,12 +113,15 @@ export default fp(async fastify => {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        fastify.log.error({ status: res.status, text, requestBody }, 'Webhook POST fehlgeschlagen');
+        fastify.log.error(
+          { status: res.status, text, requestBody },
+          'Webhook POST failed'
+        );
       } else {
-        fastify.log.info({ requestBody }, 'Webhook POST erfolgreich');
+        fastify.log.info({ requestBody }, 'Webhook POST successful');
       }
     } catch (err) {
-      fastify.log.error({ err }, 'Webhook POST Fehler');
+      fastify.log.error({ err }, 'Webhook POST error');
     }
   };
 
