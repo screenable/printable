@@ -23,7 +23,7 @@ export async function startPrintWorker(server: FastifyInstance) {
   const renderAndPrintNew = async (job: PrintJob) => {
     // ↪︎ 2) Network-Printer verbinden
     printer = new NetworkReceiptPrinter({
-      host: '192.168.0.200',
+      host: '192.168.100.200',
       port: 9100,
     });
     await printer.connect();
@@ -357,7 +357,7 @@ export async function startPrintWorker(server: FastifyInstance) {
   }
 
   const connectToPrinter = async () => {
-    if (!printer) printer = new NetworkReceiptPrinter({ host: '192.168.0.200' });
+    if (!printer) printer = new NetworkReceiptPrinter({ host: '192.168.100.200' });
     await printer.connect();
   };
 
