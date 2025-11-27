@@ -3,7 +3,7 @@ import type { WebhookTemplate } from '../types/webhook-template.types';
 
 /**
  * Configuration for webhook templates
- * 
+ *
  * Each template has:
  * - name: Template identifier
  * - probability: Weight for random selection (higher = more likely)
@@ -13,31 +13,28 @@ import type { WebhookTemplate } from '../types/webhook-template.types';
  */
 export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
   {
-    name: 'edeka-voucher-peanut',
-    probability: 70,
+    name: 'edeka-frisch-10',
+    probability: 22,
     cooldownSeconds: 0,
     data: {
-      price: 'Peanut & Choco',
+      price: '10%',
     },
-    voucherCategory: '6001',
   },
   {
-    name: 'edeka-voucher-tortellini',
-    probability: 40,
-    cooldownSeconds: 0,
-    data: {
-      price: 'Tortellini',
-    },
-    voucherCategory: '6002',
-  },
-  {
-    name: 'edeka-voucher-chips',
+    name: 'edeka-frisch-25',
     probability: 10,
-    cooldownSeconds: 90, // Only available if last press was more than 90 seconds ago
+    cooldownSeconds: 10,
     data: {
-      price: 'Gitter Chips',
+      price: '25%',
     },
-    voucherCategory: '6004',
+  },
+  {
+    name: 'edeka-frisch-50',
+    probability: 3,
+    cooldownSeconds: 60,
+    data: {
+      price: '50%',
+    },
   },
 ];
 
@@ -45,6 +42,6 @@ export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
  * Fallback template when no voucher is available
  */
 export const NO_LUCK_TEMPLATE = {
-  name: 'no-luck',
+  name: 'trost-wurst',
   data: {},
 };
