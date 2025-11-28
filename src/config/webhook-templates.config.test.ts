@@ -24,8 +24,8 @@ describe('WEBHOOK_TEMPLATES Configuration', () => {
     const iterations = 10000;
 
     // Run multiple selections to test distribution
+    // Note: No cooldown reset needed as all templates have cooldownSeconds: 0
     for (let i = 0; i < iterations; i++) {
-      selector.resetCooldown(); // Reset for fair testing
       const selected = selector.selectTemplate();
       if (selected) {
         counts.set(selected.name, (counts.get(selected.name) || 0) + 1);
