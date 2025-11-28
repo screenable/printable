@@ -13,7 +13,7 @@ import type { WebhookTemplate } from '../types/webhook-template.types';
  */
 export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
   {
-    name: 'edeka-frisch-10',
+    name: 'edeka-frische-10',
     probability: 22,
     cooldownSeconds: 0,
     data: {
@@ -21,7 +21,7 @@ export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
     },
   },
   {
-    name: 'edeka-frisch-25',
+    name: 'edeka-frische-25',
     probability: 10,
     cooldownSeconds: 10,
     data: {
@@ -29,7 +29,7 @@ export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
     },
   },
   {
-    name: 'edeka-frisch-50',
+    name: 'edeka-frische-50',
     probability: 3,
     cooldownSeconds: 60,
     data: {
