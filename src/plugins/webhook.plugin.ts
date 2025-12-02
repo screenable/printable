@@ -105,20 +105,31 @@ export default fp(async fastify => {
       }
 
       // Send webhook request
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        fastify.log.error(
-          { status: res.status, text, requestBody },
-          'Webhook POST failed'
-        );
-      } else {
-        fastify.log.info({ requestBody }, 'Webhook POST successful');
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          fastify.log.error(
+            { status: res.status, text, requestBody },
+            'Webhook POST failed'
+          );
+        } else {
+          fastify.log.info({ requestBody }, 'Webhook POST successful');
+        }
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+        throw fetchErr;
       }
     } catch (err) {
       fastify.log.error({ err }, 'Webhook POST error');

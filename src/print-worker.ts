@@ -9,24 +9,37 @@ import { createCanvas, loadImage } from 'canvas';
 import { bus } from './event-bus';
 
 const POLL_INTERVAL_MS = 200;
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 2000;
+const PRINTER_RECONNECT_DELAY_MS = 5000;
+
 export async function startPrintWorker(server: FastifyInstance) {
   const supabase = server.supabase;
   let printer: NetworkReceiptPrinter | null = null;
+  let printerConnected = false;
 
   const mark = async (jobId: string, status: JobStatus, extra = {}) => {
-    await supabase
-      .from('print_jobs')
-      .update({ status, ...extra })
-      .eq('id', jobId);
+    try {
+      // Use Promise.race for timeout since abortSignal may not be supported
+      const updatePromise = supabase
+        .from('print_jobs')
+        .update({ status, ...extra })
+        .eq('id', jobId);
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Update timeout')), 5000);
+      });
+      
+      await Promise.race([updatePromise, timeoutPromise]);
+    } catch (error) {
+      // Log error but don't throw - job processing can continue
+      server.log.error({ error, jobId, status }, 'Failed to update job status in database');
+    }
   };
 
   const renderAndPrintNew = async (job: PrintJob) => {
-    // ↪︎ 2) Network-Printer verbinden
-    printer = new NetworkReceiptPrinter({
-      host: '192.168.100.200',
-      port: 9100,
-    });
-    await printer.connect();
+    // Ensure printer is connected before attempting to print
+    await ensurePrinterConnected();
     if (!job.filled_template) {
       server.log.info('Kein gefülltes Template, überspringe');
       return;
@@ -196,13 +209,28 @@ export async function startPrintWorker(server: FastifyInstance) {
 
           await mark(job.id, 'done');
           bus.emit('print.done');
+          server.log.info({ jobId: job.id }, 'Print job completed successfully');
           //console.log('print job sent, printer disconnected');
-          await printer.disconnect();
+          
+          // Don't disconnect - keep connection alive for next job
         } catch (err) {
           bus.emit('print.error');
-
-          console.error('Fehler beim Drucken über NetworkReceiptPrinter:', err);
+          server.log.error({ error: err, jobId: job.id }, 'Error printing job');
+          
+          // Mark printer as disconnected to trigger reconnection on next job
+          printerConnected = false;
+          
           await mark(job.id, 'error', { error: String(err) });
+          
+          // Try to disconnect and cleanup
+          try {
+            if (printer) {
+              await printer.disconnect();
+              printer = null;
+            }
+          } catch (disconnectErr) {
+            server.log.warn({ error: disconnectErr }, 'Error disconnecting printer after failure');
+          }
         }
       }
     } catch (error) {
@@ -336,12 +364,22 @@ export async function startPrintWorker(server: FastifyInstance) {
   }; */
 
   async function loadRemoteImageAsBuffer(url: string): Promise<Buffer> {
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Failed to fetch image: ${res.status} ${res.statusText}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      
+      if (!res.ok) {
+        throw new Error(`Failed to fetch image: ${res.status} ${res.statusText}`);
+      }
+      const arrayBuffer = await res.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
-    const arrayBuffer = await res.arrayBuffer();
-    return Buffer.from(arrayBuffer);
   }
 
   async function qrimageAsync(
@@ -361,34 +399,100 @@ export async function startPrintWorker(server: FastifyInstance) {
   }
 
   const connectToPrinter = async () => {
-    if (!printer) printer = new NetworkReceiptPrinter({ host: '192.168.100.200' });
-    await printer.connect();
+    if (!printer) {
+      printer = new NetworkReceiptPrinter({ 
+        host: '192.168.100.200',
+        port: 9100 
+      });
+    }
+    
+    try {
+      await printer.connect();
+      printerConnected = true;
+      server.log.info('Printer connected successfully');
+    } catch (error) {
+      printerConnected = false;
+      server.log.error({ error }, 'Failed to connect to printer');
+      throw error;
+    }
   };
 
-  const fetchPendingJob = async () => {
-    const { data, error } = await supabase
-      .from('print_jobs')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      // PGRST116 = no rows (depends on client version); ignore if no job
-      // fallback: return null if row not found
-      if (data === null) return null;
+  const ensurePrinterConnected = async () => {
+    if (!printerConnected || !printer) {
+      server.log.info('Printer not connected, attempting to connect...');
+      
+      for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+        try {
+          await connectToPrinter();
+          return; // Success
+        } catch (error) {
+          server.log.warn(
+            { attempt, maxAttempts: MAX_RETRY_ATTEMPTS, error },
+            'Printer connection attempt failed'
+          );
+          
+          if (attempt < MAX_RETRY_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, PRINTER_RECONNECT_DELAY_MS));
+          }
+        }
+      }
+      
+      throw new Error('Failed to connect to printer after maximum retry attempts');
     }
-    return data || null;
+  };
+
+  const fetchPendingJob = async (): Promise<PrintJob | null> => {
+    try {
+      // Note: Timeout handling via Promise.race since abortSignal may not be supported
+      const queryPromise = supabase
+        .from('print_jobs')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), 10000);
+      });
+
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+
+      if (error) {
+        // PGRST116 = no rows found, which is expected when no jobs are pending
+        if (error.code === 'PGRST116') {
+          return null;
+        }
+        
+        // Log other errors but don't throw - keep polling
+        server.log.warn({ error }, 'Error fetching pending job from Supabase');
+        return null;
+      }
+      
+      return data;
+    } catch (err) {
+      // Catch any unexpected errors including timeouts
+      if (err instanceof Error && err.message === 'Query timeout') {
+        server.log.warn('Database query timeout - will retry');
+      } else {
+        server.log.error({ error: err }, 'Unexpected error in fetchPendingJob');
+      }
+      return null;
+    }
   };
 
   // Hilfsfunktion
   async function canvasFromUrl(url: string) {
-    const img = await loadImage(url);
-    const canvas = createCanvas(img.width, img.height);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, img.width, img.height);
-    return canvas;
+    try {
+      const img = await loadImage(url);
+      const canvas = createCanvas(img.width, img.height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      return canvas;
+    } catch (error) {
+      server.log.error({ error, url }, 'Failed to load image from URL');
+      throw error;
+    }
   }
 
   async function loop() {
@@ -396,15 +500,28 @@ export async function startPrintWorker(server: FastifyInstance) {
       try {
         const job = await fetchPendingJob();
         if (job) {
-          console.log('Gefundener Job:', job.id);
+          server.log.info({ jobId: job.id }, 'Processing print job');
           await renderAndPrintNew(job);
         }
       } catch (e) {
-        console.error('Fehler im Loop:', e);
+        server.log.error({ error: e }, 'Error in print worker loop');
+        
+        // If it's a printer connection error, wait longer before retrying
+        if (e instanceof Error && e.message.includes('printer')) {
+          server.log.info('Waiting before retry due to printer error');
+          await new Promise(r => setTimeout(r, PRINTER_RECONNECT_DELAY_MS));
+        }
       }
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     }
   }
-  await connectToPrinter();
+  
+  // Initial printer connection with retry logic
+  try {
+    await connectToPrinter();
+  } catch (error) {
+    server.log.error({ error }, 'Initial printer connection failed, will retry during job processing');
+  }
+  
   loop();
 }
