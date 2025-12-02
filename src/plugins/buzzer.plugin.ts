@@ -43,13 +43,16 @@ export default fp(async fastify => {
   // Flag to ignore spurious interrupts during initialization
   let isInitializing = true;
 
+  // Fallback timeout in ms to reset initialization flag
+  const INIT_TIMEOUT_MS = 1000;
+
   // Fallback: reset the initialization flag after a short delay even if no interrupt occurs
   setTimeout(() => {
     if (isInitializing) {
       fastify.log.debug(`Initialization period ended for GPIO${CONFIG.GPIO_PIN} (no interrupt occurred)`);
       isInitializing = false;
     }
-  }, 1000);
+  }, INIT_TIMEOUT_MS);
 
   gpio.on('interrupt', value => {
     // Ignore the first interrupt event that may occur during GPIO initialization
