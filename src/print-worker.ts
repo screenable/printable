@@ -20,21 +20,17 @@ export async function startPrintWorker(server: FastifyInstance) {
 
   const mark = async (jobId: string, status: JobStatus, extra = {}) => {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      // Use Promise.race for timeout since abortSignal may not be supported
+      const updatePromise = supabase
+        .from('print_jobs')
+        .update({ status, ...extra })
+        .eq('id', jobId);
       
-      try {
-        await supabase
-          .from('print_jobs')
-          .update({ status, ...extra })
-          .eq('id', jobId)
-          .abortSignal(controller.signal);
-        
-        clearTimeout(timeoutId);
-      } catch (updateErr) {
-        clearTimeout(timeoutId);
-        throw updateErr;
-      }
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Update timeout')), 5000);
+      });
+      
+      await Promise.race([updatePromise, timeoutPromise]);
     } catch (error) {
       // Log error but don't throw - job processing can continue
       server.log.error({ error, jobId, status }, 'Failed to update job status in database');
@@ -447,41 +443,36 @@ export async function startPrintWorker(server: FastifyInstance) {
 
   const fetchPendingJob = async (): Promise<PrintJob | null> => {
     try {
-      // Add timeout to prevent hanging on database queries
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      // Note: Timeout handling via Promise.race since abortSignal may not be supported
+      const queryPromise = supabase
+        .from('print_jobs')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
       
-      try {
-        const { data, error } = await supabase
-          .from('print_jobs')
-          .select('*')
-          .eq('status', 'pending')
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .abortSignal(controller.signal)
-          .single();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), 10000);
+      });
 
-        clearTimeout(timeoutId);
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
-        if (error) {
-          // PGRST116 = no rows found, which is expected when no jobs are pending
-          if (error.code === 'PGRST116') {
-            return null;
-          }
-          
-          // Log other errors but don't throw - keep polling
-          server.log.warn({ error }, 'Error fetching pending job from Supabase');
+      if (error) {
+        // PGRST116 = no rows found, which is expected when no jobs are pending
+        if (error.code === 'PGRST116') {
           return null;
         }
         
-        return data;
-      } catch (fetchErr) {
-        clearTimeout(timeoutId);
-        throw fetchErr;
+        // Log other errors but don't throw - keep polling
+        server.log.warn({ error }, 'Error fetching pending job from Supabase');
+        return null;
       }
+      
+      return data;
     } catch (err) {
       // Catch any unexpected errors including timeouts
-      if (err instanceof Error && err.name === 'AbortError') {
+      if (err instanceof Error && err.message === 'Query timeout') {
         server.log.warn('Database query timeout - will retry');
       } else {
         server.log.error({ error: err }, 'Unexpected error in fetchPendingJob');

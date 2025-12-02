@@ -5,6 +5,11 @@ const MEMORY_CHECK_INTERVAL_MS = 60000; // Check every minute
 const MEMORY_WARNING_THRESHOLD_MB = 400; // Warn if heap usage exceeds this
 const MEMORY_CRITICAL_THRESHOLD_MB = 700; // Critical if heap usage exceeds this
 
+// Type for global.gc when --expose-gc flag is used
+interface GlobalWithGC {
+  gc?: () => void;
+}
+
 export default fp(async fastify => {
   const checkMemoryUsage = () => {
     const usage = process.memoryUsage();
@@ -24,9 +29,10 @@ export default fp(async fastify => {
       );
       
       // Force garbage collection if available (requires --expose-gc flag)
-      if (global.gc) {
+      const globalWithGC = global as GlobalWithGC;
+      if (typeof globalWithGC.gc === 'function') {
         fastify.log.info('Running garbage collection');
-        global.gc();
+        globalWithGC.gc();
       }
     } else if (heapUsedMB > MEMORY_WARNING_THRESHOLD_MB) {
       fastify.log.warn(

@@ -11,7 +11,7 @@ const register: FastifyPluginCallback = (server, options, done) => {
         heapTotal: process.memoryUsage().heapTotal,
         rss: process.memoryUsage().rss,
       },
-      environment: process.env.ENVIRONMENT || 'development',
+      environment: process.env.NODE_ENV || process.env.ENVIRONMENT || 'development',
     };
 
     return reply.status(200).send(healthStatus);
