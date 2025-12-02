@@ -105,7 +105,7 @@ GITHUB_REPO=printable
 # Optional: GitHub Personal Access Token
 # Only required for private repositories
 # For public repositories, you can omit this or leave it empty
-GITHUB_TOKEN=ghp_your_github_token_here
+# GITHUB_TOKEN=ghp_your_github_token_here
 
 # Auto-apply updates (will restart the application)
 # Set to 'false' to only check and notify about updates
