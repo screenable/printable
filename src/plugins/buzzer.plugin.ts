@@ -40,7 +40,17 @@ export default fp(async fastify => {
     },
   };
 
+  // Flag to ignore spurious interrupts during initialization
+  let isInitializing = true;
+
   gpio.on('interrupt', value => {
+    // Ignore the first interrupt event that may occur during GPIO initialization
+    if (isInitializing) {
+      fastify.log.debug(`Ignoring initial GPIO interrupt during initialization (pin ${CONFIG.GPIO_PIN}, value ${value})`);
+      isInitializing = false;
+      return;
+    }
+
     if (value === 1) {
       fastify.log.info(`Button pressed on pin ${CONFIG.GPIO_PIN}`);
       bus.emit('button.press', { pin: CONFIG.GPIO_PIN });
