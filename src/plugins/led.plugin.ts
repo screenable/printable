@@ -32,6 +32,11 @@ class WLEDClient {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
+      // Silently fail - LED errors should not crash the application
+      if (axios.isAxiosError(error) && error.code === 'ECONNREFUSED') {
+        // Connection refused - WLED device might be offline
+        return;
+      }
       console.error('WLED API error:', error);
     }
   }

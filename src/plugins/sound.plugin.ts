@@ -33,8 +33,16 @@ export default fp(async fastify => {
     playBeep: async () => {
       return new Promise<void>((resolve, reject) => {
         const start = Date.now();
+        
+        // Set a timeout to prevent hanging
+        const timeout = setTimeout(() => {
+          fastify.log.warn('Sound playback timeout - continuing anyway');
+          resolve(); // Don't reject, audio is not critical
+        }, 5000); // 5 second timeout
 
         const child = audio.play(soundFile, {aplay:['-D', 'sysdefault:Headphones']}, err => {
+          clearTimeout(timeout);
+          
           if (err) {
             fastify.log.error({
               msg: '❌ Fehler beim Abspielen des Sounds mit aplay',
@@ -46,7 +54,8 @@ export default fp(async fastify => {
                 'Läuft der Service mit Zugriff auf die Audio-Hardware?',
               ],
             });
-            return reject(err);
+            // Don't reject - audio failure should not stop the application
+            return resolve();
           }
 
           fastify.log.info(`🔊 Beep-Sound erfolgreich abgespielt (${Date.now() - start} ms)`);
@@ -74,7 +83,8 @@ export default fp(async fastify => {
     try {
       await soundPlugin.playBeep();
     } catch (err) {
-      fastify.log.error('❌ Fehler beim Abspielen des Beeps:', err);
+      // Log but don't crash - audio is not critical for operation
+      fastify.log.warn({ error: err }, '❌ Fehler beim Abspielen des Beeps (nicht kritisch)');
     }
   });
 
