@@ -48,7 +48,12 @@ class WLEDClient {
     });
   }
 
-  async setEffect(effectId: number, speed = 128, intensity = 128, colors: number[][] = [[255, 205, 0]]): Promise<void> {
+  async setEffect(
+    effectId: number,
+    speed = 128,
+    intensity = 128,
+    colors: number[][] = [[255, 205, 0]],
+  ): Promise<void> {
     await this.setState({
       on: true,
       seg: [
@@ -81,6 +86,11 @@ class WLEDClient {
     // Effect 28 is typically "Chase" in WLED (may vary by version)
     await this.setEffect(28, speed, 128, [[r, g, b]]);
   }
+
+  async setChase2(r: number, g: number, b: number, speed = 128): Promise<void> {
+    // Effect 28 is typically "Chase" in WLED (may vary by version)
+    await this.setEffect(37, speed, 120, [[r, g, b]]);
+  }
 }
 
 export default fp(async fastify => {
@@ -90,7 +100,7 @@ export default fp(async fastify => {
   let progress = 0; // 0..1 - stored for potential future progress visualization
   const intervals: IntervalId[] = [];
   const timeouts: TimeoutId[] = [];
-  
+
   const clearTimers = () => {
     for (const id of intervals.splice(0)) clearInterval(id);
     for (const id of timeouts.splice(0)) clearTimeout(id);
@@ -109,7 +119,7 @@ export default fp(async fastify => {
       }
       case 'working': {
         // Rainbow chase effect for working state
-        await wled.setRainbow(150);
+        await wled.setChase2(255, 205, 0, 180);
         break;
       }
       case 'done': {
@@ -162,7 +172,7 @@ export default fp(async fastify => {
     }
   });
 
-  bus.on('print.done', async () => applyState('done'));
+  bus.on('print.done', async () => await applyState('done'));
   bus.on('print.error', async () => applyState('error'));
 
   // Initial
