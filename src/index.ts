@@ -4,8 +4,6 @@ import soundPlugin from './plugins/sound.plugin';
 import webhookPlugin from './plugins/webhook.plugin';
 import supabasePlugin from './plugins/supabase.plugin';
 import ledPlugin from './plugins/led.plugin';
-import memoryMonitorPlugin from './plugins/memory-monitor.plugin';
-import watchdogPlugin from './plugins/watchdog.plugin';
 import { startPrintWorker } from './print-worker';
 import server from './server';
 
@@ -48,8 +46,6 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 async function main() {
-  await server.register(watchdogPlugin);
-  await server.register(memoryMonitorPlugin);
   await server.register(keyboardPlugin);
   await server.register(supabasePlugin);
   await server.register(soundPlugin);

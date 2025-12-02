@@ -1,19 +1,17 @@
 # Stability Improvements Summary
 
 ## Overview
-This document summarizes all stability improvements made to ensure reliable unattended operation for multiple weeks.
+This document summarizes all stability improvements made to ensure reliable unattended operation for multiple weeks when running as a cronjob.
 
 ## Problem Statement
-The application needed to be optimized for stability as it will run as an automated system without supervision for several weeks.
+The application needed to be optimized for stability as it will run as an automated system without supervision for several weeks, running as a cronjob with sudo.
 
 ## Solution Overview
 Implemented comprehensive stability improvements across all critical areas:
 - Error recovery and resilience
-- Resource management
 - Timeout protection
-- Monitoring and observability
 - Graceful degradation
-- Production deployment support
+- Resource cleanup
 
 ## Changes by Category
 
@@ -48,21 +46,15 @@ Non-critical services fail silently without affecting core functionality:
 
 ### 4. Resource Management
 
-#### Memory Monitoring (`src/plugins/memory-monitor.plugin.ts`)
-- Checks memory usage every 60 seconds
-- **Warning threshold**: 400MB heap usage
-- **Critical threshold**: 700MB heap usage
-- Automatic garbage collection trigger when critical (if --expose-gc enabled)
-
-#### Watchdog (`src/plugins/watchdog.plugin.ts`)
-- Monitors application activity every 30 seconds
-- Alerts if no activity for 60 seconds (potential hang)
-- Logs process state for debugging
-
 #### Cleanup
 - All plugins properly clean up resources in onClose hooks
 - Event listeners removed on shutdown
 - Intervals and timeouts cleared
+
+#### Startup
+- All critical services verified on startup
+- Graceful handling if printer unavailable initially
+- Clear logging of initialization status
 
 ### 5. Process Management
 
@@ -72,20 +64,7 @@ Non-critical services fail silently without affecting core functionality:
 - Uncaught exception handler with logging before exit
 - Unhandled promise rejection handler
 
-#### Startup
-- All critical services verified on startup
-- Graceful handling if printer unavailable initially
-- Clear logging of initialization status
-
-### 6. Monitoring & Observability
-
-#### Health Check Endpoint (`src/routes/health.ts`)
-- GET `/health` returns:
-  - Service status
-  - Timestamp
-  - Process uptime
-  - Memory usage (heap and RSS)
-  - Environment
+### 6. Logging
 
 #### Structured Logging
 - All errors logged with context
@@ -97,24 +76,17 @@ Non-critical services fail silently without affecting core functionality:
 #### Documentation
 - **`docs/OPERATIONS.md`**: Complete operational guide
   - Features explained
-  - Monitoring recommendations
   - Troubleshooting procedures
   - Maintenance schedule
+  - Cronjob setup instructions
 
 - **`docs/DEPLOYMENT_CHECKLIST.md`**: Pre-deployment validation
   - Hardware setup checklist
   - Software configuration steps
   - Pre-flight tests
-  - Burn-in validation
+  - Cronjob configuration
   - Emergency procedures
   - Success criteria
-
-#### systemd Service (`docs/printable.service`)
-- Auto-restart on failure (RestartSec=10)
-- Resource limits (1GB memory max)
-- Proper shutdown timeout (30 seconds)
-- Journal logging integration
-- Optional security hardening
 
 ## Testing
 
@@ -139,15 +111,13 @@ Non-critical services fail silently without affecting core functionality:
 
 2. **Automatic Recovery**: Database and printer connections automatically recover from failures
 
-3. **Hang Prevention**: Watchdog detects hangs, all network operations have timeouts
+3. **Hang Prevention**: All network operations have timeouts
 
-4. **Memory Safety**: Active monitoring prevents memory leaks, automatic GC when needed
+4. **Observability**: Structured logging enables effective troubleshooting
 
-5. **Observability**: Health checks and structured logging enable remote monitoring
+5. **Production Ready**: Cronjob-compatible with proper error handling and automatic recovery
 
-6. **Production Ready**: systemd service with auto-restart ensures high availability
-
-7. **Well Documented**: Complete operational and deployment documentation
+6. **Well Documented**: Complete operational and deployment documentation
 
 ## Operational Best Practices
 
@@ -156,36 +126,32 @@ Non-critical services fail silently without affecting core functionality:
 1. **Before Deployment**
    - Follow deployment checklist completely
    - Run 24-hour burn-in test
-   - Verify all monitoring is in place
+   - Configure log rotation
 
 2. **During Operation**
-   - Monitor health endpoint daily
-   - Set up alerts for service down or high memory
    - Weekly log review for error patterns
+   - Monitor printer supplies
 
 3. **Emergency Response**
-   - systemd will auto-restart on crashes
-   - Health endpoint for remote status checks
    - Clear emergency procedures documented
+   - Log files available for troubleshooting
 
 ## Performance Impact
 
 All stability improvements have minimal performance impact:
-- Memory monitoring: 60-second intervals
-- Watchdog: 30-second intervals  
 - Timeouts: Only trigger on actual failures
-- Health checks: On-demand via HTTP endpoint
+- Cleanup: Executed only on shutdown
 
 ## Backwards Compatibility
 
 All changes are backwards compatible:
 - No breaking API changes
 - Existing functionality preserved
-- Additional monitoring/safety only
+- Additional safety mechanisms only
 
 ## Conclusion
 
-The application is now significantly more stable and suitable for multi-week unattended operation. All critical paths have proper error handling, timeouts, and recovery mechanisms. Comprehensive monitoring and documentation enable effective operation and troubleshooting.
+The application is now significantly more stable and suitable for multi-week unattended operation as a cronjob. All critical paths have proper error handling, timeouts, and recovery mechanisms. Comprehensive documentation enables effective operation and troubleshooting.
 
 ### Security Summary
 ✓ No vulnerabilities found in CodeQL analysis
