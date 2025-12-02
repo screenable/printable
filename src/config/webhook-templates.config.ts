@@ -21,20 +21,13 @@ export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
     },
   },
   {
-    name: 'edeka-frische-25',
-    probability: 10,
-    cooldownSeconds: 10,
+    name: 'edeka-fallback-trigger',
+    probability: 78,
+    cooldownSeconds: 0,
     data: {
-      price: '25%',
+      price: 'Fallback',
     },
-  },
-  {
-    name: 'edeka-frische-50',
-    probability: 3,
-    cooldownSeconds: 60,
-    data: {
-      price: '50%',
-    },
+    voucherCategory: 'fallback-category',
   },
   {
     name: 'trost-wurst',
