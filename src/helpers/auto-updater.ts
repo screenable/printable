@@ -103,7 +103,13 @@ export function updateApplication(): void {
     console.log('Fetching latest changes from git...');
     execSync('git fetch --tags', { stdio: 'inherit' });
     
-    const latestTag = execSync('git describe --tags --abbrev=0 origin/main', { encoding: 'utf-8' }).trim();
+    const latestTag = execSync('git describe --tags --abbrev=0', { encoding: 'utf-8' }).trim();
+    
+    // Validate tag format (should match semantic versioning pattern)
+    if (!/^v?\d+\.\d+\.\d+/.test(latestTag)) {
+      throw new Error(`Invalid tag format: ${latestTag}`);
+    }
+    
     console.log(`Checking out latest tag: ${latestTag}`);
     
     execSync(`git checkout ${latestTag}`, { stdio: 'inherit' });
@@ -115,6 +121,11 @@ export function updateApplication(): void {
     execSync('npm run build', { stdio: 'inherit' });
     
     console.log('Update completed successfully!');
+    console.log('Restarting application is required to use the new version.');
+    console.log('The application will now exit. Please restart it manually or via your process manager.');
+    
+    // Exit to allow process manager (systemd, pm2, etc.) to restart the app
+    process.exit(0);
   } catch (error) {
     console.error('Error during update:', error);
     throw error;
@@ -140,7 +151,7 @@ export async function autoUpdate(
     if (autoApply) {
       console.log('Auto-applying update...');
       updateApplication();
-      console.log('Application updated. Please restart to use the new version.');
+      // Note: updateApplication() will exit the process, so this line won't be reached
     } else {
       console.log('To update, run: git fetch --tags && git checkout <latest-tag> && npm ci && npm run build');
     }
