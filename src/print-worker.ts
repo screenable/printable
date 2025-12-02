@@ -176,7 +176,7 @@ export async function startPrintWorker(server: FastifyInstance) {
             break;
 
           default:
-            console.warn('Unsupported element type:', (el as any).type);
+            console.warn('Unsupported element type:', (el as { type: string }).type);
         }
       }
 
