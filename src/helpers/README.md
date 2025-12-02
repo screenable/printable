@@ -121,14 +121,26 @@ Add the following environment variables to your `.env` file:
 ```env
 GITHUB_OWNER=screenable
 GITHUB_REPO=printable
+GITHUB_TOKEN=ghp_your_github_token_here
 AUTO_UPDATE_ENABLED=true
 AUTO_UPDATE_APPLY=false
 ```
 
 - `GITHUB_OWNER`: The GitHub repository owner
 - `GITHUB_REPO`: The GitHub repository name
+- `GITHUB_TOKEN`: GitHub personal access token (required for private repositories)
 - `AUTO_UPDATE_ENABLED`: Set to `true` to enable auto-update checks on startup
 - `AUTO_UPDATE_APPLY`: Set to `true` to automatically apply updates (default: `false`)
+
+#### GitHub Token for Private Repositories
+
+For private repositories, you must provide a GitHub personal access token with `repo` scope:
+
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Generate new token with `repo` scope
+3. Add the token to your `.env` file as `GITHUB_TOKEN`
+
+Without a token, the auto-updater will fail to fetch releases from private repositories.
 
 ### How It Works
 
@@ -150,13 +162,14 @@ The auto-updater runs automatically on application startup. No code changes are 
 
 Returns the current version from `package.json`.
 
-#### `getLatestRelease(owner: string, repo: string): Promise<GitHubRelease | null>`
+#### `getLatestRelease(owner: string, repo: string, token?: string): Promise<GitHubRelease | null>`
 
 Fetches the latest release from GitHub.
 
 - **Parameters:**
   - `owner`: GitHub repository owner
   - `repo`: GitHub repository name
+  - `token`: Optional GitHub personal access token (required for private repos)
 - **Returns:** The latest release object or `null` if no releases exist
 
 #### `compareVersions(v1: string, v2: string): number`
@@ -168,16 +181,17 @@ Compares two semantic versions.
   - `v2`: Second version string
 - **Returns:** `1` if v1 > v2, `-1` if v1 < v2, `0` if equal
 
-#### `checkForUpdates(owner: string, repo: string): Promise<UpdateInfo>`
+#### `checkForUpdates(owner: string, repo: string, token?: string): Promise<UpdateInfo>`
 
 Checks if an update is available.
 
 - **Parameters:**
   - `owner`: GitHub repository owner
   - `repo`: GitHub repository name
+  - `token`: Optional GitHub personal access token (required for private repos)
 - **Returns:** Object with `updateAvailable`, `latestVersion`, and `currentVersion`
 
-#### `autoUpdate(owner: string, repo: string, autoApply?: boolean): Promise<void>`
+#### `autoUpdate(owner: string, repo: string, autoApply?: boolean, token?: string): Promise<void>`
 
 Main auto-update function that checks and optionally applies updates.
 
@@ -185,6 +199,7 @@ Main auto-update function that checks and optionally applies updates.
   - `owner`: GitHub repository owner
   - `repo`: GitHub repository name
   - `autoApply`: If `true`, automatically applies the update (default: `false`)
+  - `token`: Optional GitHub personal access token (required for private repos)
 
 ### Security Considerations
 

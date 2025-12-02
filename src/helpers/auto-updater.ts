@@ -32,14 +32,22 @@ export function getCurrentVersion(): string {
 export async function getLatestRelease(
   owner: string,
   repo: string,
+  token?: string,
 ): Promise<GitHubRelease | null> {
   try {
     const url = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+    const headers: Record<string, string> = {
+      'User-Agent': 'printable-auto-updater',
+      Accept: 'application/vnd.github.v3+json',
+    };
+    
+    // Add authorization header if token is provided (required for private repos)
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    
     const response = await axios.get<GitHubRelease>(url, {
-      headers: {
-        'User-Agent': 'printable-auto-updater',
-        Accept: 'application/vnd.github.v3+json',
-      },
+      headers,
       timeout: 10000,
     });
     return response.data;
@@ -76,9 +84,10 @@ export function compareVersions(v1: string, v2: string): number {
 export async function checkForUpdates(
   owner: string,
   repo: string,
+  token?: string,
 ): Promise<{ updateAvailable: boolean; latestVersion?: string; currentVersion: string }> {
   const currentVersion = getCurrentVersion();
-  const latestRelease = await getLatestRelease(owner, repo);
+  const latestRelease = await getLatestRelease(owner, repo, token);
 
   if (!latestRelease) {
     return { updateAvailable: false, currentVersion };
@@ -140,10 +149,11 @@ export async function autoUpdate(
   owner: string,
   repo: string,
   autoApply = false,
+  token?: string,
 ): Promise<void> {
   console.log('Checking for updates...');
   
-  const updateInfo = await checkForUpdates(owner, repo);
+  const updateInfo = await checkForUpdates(owner, repo, token);
   
   if (updateInfo.updateAvailable) {
     console.log(`Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`);

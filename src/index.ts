@@ -16,9 +16,10 @@ async function main() {
     const owner = process.env.GITHUB_OWNER || 'screenable';
     const repo = process.env.GITHUB_REPO || 'printable';
     const autoApply = process.env.AUTO_UPDATE_APPLY === 'true';
+    const token = process.env.GITHUB_TOKEN; // Optional: required for private repos
     
     try {
-      await autoUpdate(owner, repo, autoApply);
+      await autoUpdate(owner, repo, autoApply, token);
     } catch (error) {
       server.log.warn('Auto-update check failed:', error);
     }
