@@ -36,6 +36,12 @@ export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
       price: '50%',
     },
   },
+  {
+    name: 'trost-wurst',
+    probability: 65,
+    cooldownSeconds:0,
+    data: { },
+  },
 ];
 
 /**
