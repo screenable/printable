@@ -150,10 +150,10 @@ export default fp(async fastify => {
     progress = 0;
     await applyState('working');
 
-    // Fallback: falls kein print.done kommt, nach X ms auf done gehen
+    // Fallback: falls kein print.done kommt, nach X ms auf error gehen
     timeouts.push(
       setTimeout(async () => {
-        if (state === 'working') await applyState('done');
+        if (state === 'working') await applyState('error');
       }, CONFIG.LED_WORKING_FALLBACK_MS),
     );
   });
@@ -164,10 +164,10 @@ export default fp(async fastify => {
       progress = 0;
       await applyState('working');
       
-      // Fallback: falls kein print.done kommt, nach X ms auf done gehen
+      // Fallback: falls kein print.done kommt, nach X ms auf error gehen
       timeouts.push(
         setTimeout(async () => {
-          if (state === 'working') await applyState('done');
+          if (state === 'working') await applyState('error');
         }, CONFIG.LED_WORKING_FALLBACK_MS),
       );
     }
