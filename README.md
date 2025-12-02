@@ -88,7 +88,18 @@ npm run docker:run
 
 ### CI/CD
 
-This repository includes a GitHub Actions workflow for building, linting, and testing the application. The workflow is triggered on pushes and pull requests to the `main` branch.
+This repository includes GitHub Actions workflows:
+
+1. **Build and Check** (`build-and-check.yml`): Runs on pushes and pull requests to the `main` branch. Builds, lints, and tests the application.
+
+2. **Automatic Release** (`release.yml`): Automatically creates a new GitHub release when code is merged to the `main`/`master` branch. The workflow:
+   - Checks the current version in `package.json`
+   - Automatically bumps the patch version if a release with the current version already exists
+   - Creates a git tag for the new version
+   - Generates a changelog from git commits
+   - Creates a GitHub release with the changelog
+
+The release workflow ensures that every merge to the main branch results in a new versioned release, making it easy to track changes and updates.
 
 ## Project Structure
 

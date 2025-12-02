@@ -1,0 +1,113 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build
+        run: npm run build
+        
+      - name: Get current version
+        id: current_version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.current_version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Bump version
+        id: bump_version
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          # Extract current version parts
+          CURRENT_VERSION="${{ steps.current_version.outputs.version }}"
+          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+          
+          # Bump patch version
+          NEW_PATCH=$((patch + 1))
+          NEW_VERSION="${major}.${minor}.${NEW_PATCH}"
+          
+          # Update package.json
+          npm version $NEW_VERSION --no-git-tag-version
+          
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          
+      - name: Set final version
+        id: final_version
+        run: |
+          if [ "${{ steps.check_tag.outputs.exists }}" == "true" ]; then
+            echo "version=${{ steps.bump_version.outputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ steps.current_version.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Commit version bump
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to ${{ steps.final_version.outputs.version }}"
+          git push
+          
+      - name: Create git tag
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git tag -a "v${{ steps.final_version.outputs.version }}" -m "Release v${{ steps.final_version.outputs.version }}"
+          git push origin "v${{ steps.final_version.outputs.version }}"
+          
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            # First release, get all commits
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            # Get commits since previous tag
+            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          # Write changelog to file to handle multiline
+          echo "$CHANGELOG" > changelog.txt
+          
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.final_version.outputs.version }}
+          name: Release v${{ steps.final_version.outputs.version }}
+          body_path: changelog.txt
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
