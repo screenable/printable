@@ -32,7 +32,14 @@ jobs:
         
       - name: Get current version
         id: current_version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          # Validate version format
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format in package.json: $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
         
       - name: Check if tag exists
         id: check_tag
@@ -49,14 +56,21 @@ jobs:
         run: |
           # Extract current version parts
           CURRENT_VERSION="${{ steps.current_version.outputs.version }}"
+          
+          # Validate version format
+          if ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format: $CURRENT_VERSION"
+            exit 1
+          fi
+          
           IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
           
           # Bump patch version
           NEW_PATCH=$((patch + 1))
           NEW_VERSION="${major}.${minor}.${NEW_PATCH}"
           
-          # Update package.json
-          npm version $NEW_VERSION --no-git-tag-version
+          # Update package.json with quoted version
+          npm version "$NEW_VERSION" --no-git-tag-version
           
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           
@@ -88,15 +102,15 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Get the previous tag
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          # Get the most recent previous tag using version sorting
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^v${{ steps.final_version.outputs.version }}$" | head -n 1 || echo "")
           
           if [ -z "$PREVIOUS_TAG" ]; then
             # First release, get all commits
             CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
           else
             # Get commits since previous tag
-            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+            CHANGELOG=$(git log "${PREVIOUS_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
           fi
           
           # Write changelog to file to handle multiline
