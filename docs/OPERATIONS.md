@@ -62,12 +62,14 @@ When running as a cronjob with sudo, ensure:
 
 Example crontab entry:
 ```cron
-@reboot cd /path/to/printable && /usr/bin/node dist/index.js >> /var/log/printable.log 2>&1
+# Replace /opt/printable with your actual installation path
+@reboot cd /opt/printable && /usr/bin/node dist/index.js >> /var/log/printable.log 2>&1
 ```
 
-Or with environment file:
+Or with environment file (safer method):
 ```cron
-@reboot cd /path/to/printable && export $(cat .env | xargs) && /usr/bin/node dist/index.js >> /var/log/printable.log 2>&1
+# Replace /opt/printable with your actual installation path
+@reboot cd /opt/printable && set -a && . ./.env && set +a && /usr/bin/node dist/index.js >> /var/log/printable.log 2>&1
 ```
 
 ## Log Management

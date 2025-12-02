@@ -45,12 +45,17 @@ cat .env
 
 ### Cronjob Setup
 ```bash
-# Edit crontab
+# Edit crontab (use appropriate user, not necessarily root)
 sudo crontab -e
 
-# Add entry:
-@reboot cd /path/to/printable && export $(cat .env | xargs) && /usr/bin/node dist/index.js >> /var/log/printable.log 2>&1
+# Add entry (replace /opt/printable with your actual path):
+@reboot cd /opt/printable && set -a && . ./.env && set +a && /usr/bin/node dist/index.js >> /var/log/printable.log 2>&1
 ```
+
+**Security Note**: While the application may need GPIO access requiring elevated permissions, consider:
+- Using a dedicated service account with specific GPIO permissions
+- Configuring udev rules for GPIO access without full sudo
+- Running only the necessary components with elevated privileges
 
 ### Initial Startup
 ```bash

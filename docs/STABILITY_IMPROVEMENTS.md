@@ -4,7 +4,12 @@
 This document summarizes all stability improvements made to ensure reliable unattended operation for multiple weeks when running as a cronjob.
 
 ## Problem Statement
-The application needed to be optimized for stability as it will run as an automated system without supervision for several weeks, running as a cronjob with sudo.
+The application needed to be optimized for stability as it will run as an automated system without supervision for several weeks, running as a cronjob.
+
+**Security Note**: If running with elevated permissions is required for GPIO access, consider:
+- Using a dedicated service account with specific GPIO permissions via udev rules
+- Configuring sudo rules that grant only necessary hardware access
+- Running only hardware-specific components with elevated privileges
 
 ## Solution Overview
 Implemented comprehensive stability improvements across all critical areas:
