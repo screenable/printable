@@ -1,0 +1,67 @@
+# Printable Service - systemd unit file
+#
+# Installation:
+# 1. Copy this file to /etc/systemd/system/printable.service
+# 2. Update paths and user/group as needed
+# 3. Enable and start: sudo systemctl enable --now printable.service
+#
+# Usage:
+# - Start:   sudo systemctl start printable
+# - Stop:    sudo systemctl stop printable
+# - Restart: sudo systemctl restart printable
+# - Status:  sudo systemctl status printable
+# - Logs:    sudo journalctl -u printable -f
+
+[Unit]
+Description=Printable - Automated Print Kiosk Service
+Documentation=https://github.com/screenable/printable
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# User and group (adjust as needed)
+User=printable
+Group=printable
+
+# Working directory (adjust to your installation path)
+WorkingDirectory=/opt/printable
+
+# Environment file with configuration
+EnvironmentFile=/opt/printable/.env
+
+# Main service command
+ExecStart=/usr/bin/node dist/index.js
+
+# Optional: Enable garbage collection for memory management
+# ExecStart=/usr/bin/node --expose-gc dist/index.js
+
+# Restart policy for high availability
+Restart=always
+RestartSec=10
+
+# Graceful shutdown timeout
+TimeoutStopSec=30
+
+# Resource limits (adjust based on your needs)
+MemoryMax=1G
+MemoryHigh=800M
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=printable
+
+# Security hardening (optional, may need adjustment for GPIO/hardware access)
+# NoNewPrivileges=true
+# PrivateTmp=true
+# ProtectSystem=strict
+# ProtectHome=true
+# ReadWritePaths=/opt/printable
+
+# Process priority (optional, adjust as needed)
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

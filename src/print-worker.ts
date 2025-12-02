@@ -19,10 +19,26 @@ export async function startPrintWorker(server: FastifyInstance) {
   let printerConnected = false;
 
   const mark = async (jobId: string, status: JobStatus, extra = {}) => {
-    await supabase
-      .from('print_jobs')
-      .update({ status, ...extra })
-      .eq('id', jobId);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      try {
+        await supabase
+          .from('print_jobs')
+          .update({ status, ...extra })
+          .eq('id', jobId)
+          .abortSignal(controller.signal);
+        
+        clearTimeout(timeoutId);
+      } catch (updateErr) {
+        clearTimeout(timeoutId);
+        throw updateErr;
+      }
+    } catch (error) {
+      // Log error but don't throw - job processing can continue
+      server.log.error({ error, jobId, status }, 'Failed to update job status in database');
+    }
   };
 
   const renderAndPrintNew = async (job: PrintJob) => {
@@ -431,29 +447,45 @@ export async function startPrintWorker(server: FastifyInstance) {
 
   const fetchPendingJob = async (): Promise<PrintJob | null> => {
     try {
-      const { data, error } = await supabase
-        .from('print_jobs')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .single();
+      // Add timeout to prevent hanging on database queries
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      try {
+        const { data, error } = await supabase
+          .from('print_jobs')
+          .select('*')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .abortSignal(controller.signal)
+          .single();
 
-      if (error) {
-        // PGRST116 = no rows found, which is expected when no jobs are pending
-        if (error.code === 'PGRST116') {
+        clearTimeout(timeoutId);
+
+        if (error) {
+          // PGRST116 = no rows found, which is expected when no jobs are pending
+          if (error.code === 'PGRST116') {
+            return null;
+          }
+          
+          // Log other errors but don't throw - keep polling
+          server.log.warn({ error }, 'Error fetching pending job from Supabase');
           return null;
         }
         
-        // Log other errors but don't throw - keep polling
-        server.log.warn({ error }, 'Error fetching pending job from Supabase');
-        return null;
+        return data;
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+        throw fetchErr;
       }
-      
-      return data;
     } catch (err) {
-      // Catch any unexpected errors
-      server.log.error({ error: err }, 'Unexpected error in fetchPendingJob');
+      // Catch any unexpected errors including timeouts
+      if (err instanceof Error && err.name === 'AbortError') {
+        server.log.warn('Database query timeout - will retry');
+      } else {
+        server.log.error({ error: err }, 'Unexpected error in fetchPendingJob');
+      }
       return null;
     }
   };
