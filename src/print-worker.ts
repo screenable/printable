@@ -176,7 +176,7 @@ export async function startPrintWorker(server: FastifyInstance) {
             break;
 
           default:
-            console.warn('Unsupported element type:', (el as any).type);
+            console.warn('Unsupported element type:', (el as { type: string }).type);
         }
       }
 
@@ -205,7 +205,11 @@ export async function startPrintWorker(server: FastifyInstance) {
           await mark(job.id, 'error', { error: String(err) });
         }
       }
-    } catch (error) {}
+    } catch (error) {
+      bus.emit('print.error');
+      console.error('Fehler beim Rendern des Templates:', error);
+      await mark(job.id, 'error', { error: String(error) });
+    }
   };
 
   /* const renderAndPrint = async (job: PrintJob) => {
