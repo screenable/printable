@@ -22,7 +22,7 @@ export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
   },
   {
     name: 'edeka-frische-25',
-    probability: 10,
+    probability: 11,
     cooldownSeconds: 10,
     data: {
       price: '25%',
@@ -30,7 +30,7 @@ export const WEBHOOK_TEMPLATES: WebhookTemplate[] = [
   },
   {
     name: 'edeka-frische-50',
-    probability: 3,
+    probability: 2,
     cooldownSeconds: 60,
     data: {
       price: '50%',
