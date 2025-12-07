@@ -86,6 +86,56 @@ Run the Docker container:
 npm run docker:run
 ```
 
+### Auto-Update
+
+The application includes built-in auto-update functionality that checks for new releases from GitHub at startup.
+
+#### Configuration
+
+Configure auto-update in your `.env` file:
+
+```bash
+# Enable automatic checking for new releases at application startup
+AUTO_UPDATE_ENABLED=true
+
+# Repository information
+GITHUB_OWNER=screenable
+GITHUB_REPO=printable
+
+# Optional: GitHub Personal Access Token
+# Only required for private repositories
+# For public repositories, you can omit this or leave it empty
+# GITHUB_TOKEN=ghp_your_github_token_here
+
+# Auto-apply updates (will restart the application)
+# Set to 'false' to only check and notify about updates
+AUTO_UPDATE_APPLY=false
+```
+
+#### How it Works
+
+1. **At Application Startup**: If `AUTO_UPDATE_ENABLED=true`, the app checks GitHub for the latest release
+2. **Version Comparison**: Compares the current version (from `package.json`) with the latest release
+3. **Update Notification**: If an update is available, it logs the version difference
+4. **Auto-Apply (Optional)**: If `AUTO_UPDATE_APPLY=true`, it will:
+   - Fetch the latest git tags
+   - Checkout the latest tag
+   - Run `npm ci` to install dependencies
+   - Run `npm run build` to build the application
+   - Exit the process (requires a process manager like systemd or pm2 to restart)
+
+#### GitHub Token
+
+- **For Public Repositories**: No token is needed. The auto-updater can check public releases without authentication
+- **For Private Repositories**: Generate a Personal Access Token:
+  1. Go to [GitHub Settings → Developer Settings → Personal Access Tokens](https://github.com/settings/tokens)
+  2. Click "Generate new token (classic)"
+  3. Give it a name (e.g., "Printable Auto-Update")
+  4. Select the `repo` scope
+  5. Copy the token and add it to your `.env` file as `GITHUB_TOKEN`
+
+**Note**: The `GITHUB_TOKEN` used by GitHub Actions workflows is different and is automatically provided by GitHub with appropriate permissions. You don't need to configure it.
+
 ### CI/CD
 
 This repository includes GitHub Actions workflows:
@@ -98,6 +148,8 @@ This repository includes GitHub Actions workflows:
    - Creates a git tag for the new version
    - Generates a changelog from git commits
    - Creates a GitHub release with the changelog
+   - Marks each release as the "latest" release (using `make_latest: true`)
+   - Uses the built-in `GITHUB_TOKEN` which is automatically provided by GitHub Actions with appropriate permissions
 
 The release workflow ensures that every merge to the main branch results in a new versioned release, making it easy to track changes and updates.
 
