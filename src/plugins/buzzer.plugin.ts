@@ -1,7 +1,7 @@
 import fp from 'fastify-plugin';
 import { Gpio, Gpio as PigpioGpio } from 'pigpio';
 import { bus } from '../event-bus';
-import { CONFIG } from '../config';
+import { configService } from '../app-context';
 
 type GpioLike = {
   on: (event: 'interrupt', cb: (level: 0 | 1) => void) => void;
@@ -9,22 +9,23 @@ type GpioLike = {
 };
 
 export default fp(async fastify => {
-  fastify.log.info(`🐷 Initialisiere pigpio für GPIO${CONFIG.GPIO_PIN}`);
+  const gpioCfg = configService.get().gpio;
+  fastify.log.info(`🐷 Initialisiere pigpio für GPIO${gpioCfg.buttonPin}`);
 
-  const realGpio = new PigpioGpio(CONFIG.GPIO_PIN, {
+  const realGpio = new PigpioGpio(gpioCfg.buttonPin, {
     mode: PigpioGpio.INPUT,
     pullUpDown: Gpio.PUD_UP,
     alert: true,
   });
 
-  const led = new PigpioGpio(5, { mode: PigpioGpio.OUTPUT });
+  const led = new PigpioGpio(gpioCfg.buzzerLedPin, { mode: PigpioGpio.OUTPUT });
   led.digitalWrite(1);
   setTimeout(() => {
     led.digitalWrite(0);
   }, 2000);
 
   // optional: software-debounce (in ms)
-  const debounceMs = CONFIG.DEBOUNCE_MS ?? 10;
+  const debounceMs = gpioCfg.debounceMs ?? 10;
   realGpio.glitchFilter(debounceMs * 1000); // pigpio erwartet µs
 
   const gpio: GpioLike = {
@@ -49,7 +50,7 @@ export default fp(async fastify => {
   // Fallback: reset the initialization flag after a short delay even if no interrupt occurs
   setTimeout(() => {
     if (isInitializing) {
-      fastify.log.debug(`Initialization period ended for GPIO${CONFIG.GPIO_PIN} (no interrupt occurred)`);
+      fastify.log.debug(`Initialization period ended for GPIO${gpioCfg.buttonPin} (no interrupt occurred)`);
       isInitializing = false;
     }
   }, INIT_TIMEOUT_MS);
@@ -57,17 +58,17 @@ export default fp(async fastify => {
   gpio.on('interrupt', value => {
     // Ignore the first interrupt event that may occur during GPIO initialization
     if (isInitializing) {
-      fastify.log.debug(`Ignoring initial GPIO interrupt during initialization (pin ${CONFIG.GPIO_PIN}, value ${value})`);
+      fastify.log.debug(`Ignoring initial GPIO interrupt during initialization (pin ${gpioCfg.buttonPin}, value ${value})`);
       isInitializing = false;
       return;
     }
 
     if (value === 1) {
-      fastify.log.info(`Button pressed on pin ${CONFIG.GPIO_PIN}`);
-      bus.emit('button.press', { pin: CONFIG.GPIO_PIN });
+      fastify.log.info(`Button pressed on pin ${gpioCfg.buttonPin}`);
+      bus.emit('button.press', { pin: gpioCfg.buttonPin });
     } else {
-      fastify.log.info(`Button released on pin ${CONFIG.GPIO_PIN}`);
-      bus.emit('button.release', { pin: CONFIG.GPIO_PIN });
+      fastify.log.info(`Button released on pin ${gpioCfg.buttonPin}`);
+      bus.emit('button.release', { pin: gpioCfg.buttonPin });
     }
   });
 
