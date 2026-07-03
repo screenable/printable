@@ -41,7 +41,8 @@ describe('VoucherStore – Bestand', () => {
 
   test('claimed codes appear in the outbox until marked synced', () => {
     store.loadBatch('cat', ['A']);
-    const code = store.claimNext('cat')!;
+    const code = store.claimNext('cat');
+    assert.ok(code);
     assert.equal(store.unsyncedClaims().length, 1);
     store.markSynced([code]);
     assert.equal(store.unsyncedClaims().length, 0);

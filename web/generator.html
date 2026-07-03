@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Printable · Neue Box</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <span class="brand">🖨️ Printable</span>
+    <nav>
+      <a href="index.html">Boxen</a>
+      <a href="generator.html" class="active">Neue Box</a>
+      <a href="bon-editor.html">Bon-Editor</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Neue Box anlegen</h1>
+    <p class="muted">Legt eine <code class="inline">devices</code>-Row an und erzeugt den fertigen Installations-Befehl für den Raspberry Pi.</p>
+
+    <div class="panel">
+      <div class="grid">
+        <div><label>Geräte-ID</label><input id="id" placeholder="box-edeka-nord-01" /></div>
+        <div><label>Name</label><input id="name" placeholder="EDEKA Nord – Eingang" /></div>
+        <div><label>Standort</label><input id="location" placeholder="Hamburg" /></div>
+      </div>
+      <h2>Hardware</h2>
+      <div class="grid">
+        <div><label>Drucker-IP</label><input id="printerHost" value="192.168.100.200" /></div>
+        <div><label>Drucker-Port</label><input id="printerPort" type="number" value="9100" /></div>
+        <div><label>Button GPIO</label><input id="buttonPin" type="number" value="17" /></div>
+        <div><label>Buzzer/LED GPIO</label><input id="buzzerLedPin" type="number" value="5" /></div>
+        <div><label>NeoPixel Anzahl</label><input id="npCount" type="number" value="0" /></div>
+        <div><label>WLED IP (optional)</label><input id="wledIp" placeholder="192.168.1.100" /></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="primary" id="create">Box anlegen</button>
+        <span class="muted" id="msg"></span>
+      </div>
+    </div>
+
+    <div class="panel" id="result" style="display:none">
+      <h2>Installation auf dem Raspberry Pi</h2>
+      <p class="muted">Einmalig auf der Box ausführen (SSH):</p>
+      <pre class="install" id="install"></pre>
+      <button class="ghost" id="copy">Befehl kopieren</button>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireClient, getSettings, el } from './app.js';
+    const c = requireClient();
+    const supaUrl = getSettings().url;
+
+    document.getElementById('create').onclick = async () => {
+      const id = document.getElementById('id').value.trim();
+      if (!id) { alert('Geräte-ID fehlt'); return; }
+      const config = {
+        printer: {
+          host: document.getElementById('printerHost').value.trim(),
+          port: Number(document.getElementById('printerPort').value),
+          model: 'epson-tm-m30iii',
+        },
+        gpio: {
+          buttonPin: Number(document.getElementById('buttonPin').value),
+          debounceMs: 10,
+          buzzerLedPin: Number(document.getElementById('buzzerLedPin').value),
+        },
+        neopixel: { count: Number(document.getElementById('npCount').value), gpio: 18, brightness: 80 },
+        led: { doneHoldMs: 2200, errorHoldMs: 3000, workingFallbackMs: 15000, wledIp: document.getElementById('wledIp').value.trim() || undefined },
+        dispense: { cooldownMs: 1000 },
+      };
+      const { error } = await c.from('devices').upsert({
+        id,
+        name: document.getElementById('name').value.trim() || null,
+        location: document.getElementById('location').value.trim() || null,
+        config,
+      });
+      const msg = document.getElementById('msg');
+      if (error) { msg.textContent = 'Fehler: ' + error.message; return; }
+      msg.textContent = 'Angelegt ✓';
+
+      const cmd =
+`curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.sh \\
+  | sudo DEVICE_ID="${id}" \\
+         SUPABASE_URL="${supaUrl}" \\
+         SUPABASE_KEY="<ANON_ODER_DEVICE_KEY>" bash`;
+      document.getElementById('install').textContent = cmd;
+      document.getElementById('result').style.display = 'block';
+    };
+
+    document.getElementById('copy').onclick = () => {
+      navigator.clipboard.writeText(document.getElementById('install').textContent);
+    };
+  </script>
+</body>
+</html>

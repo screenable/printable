@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Printable · Bon-Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <span class="brand">🖨️ Printable</span>
+    <nav>
+      <a href="index.html">Boxen</a>
+      <a href="generator.html">Neue Box</a>
+      <a href="bon-editor.html" class="active">Bon-Editor</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Bon-Editor</h1>
+    <p class="muted">Layout als Element-Liste bearbeiten, rechts die Live-Vorschau (80&nbsp;mm). Platzhalter: <code class="inline">{{code}}</code>, <code class="inline">{{price}}</code>, <code class="inline">{{date}}</code>, <code class="inline">{{time}}</code>.</p>
+
+    <div class="panel row">
+      <div style="flex:1; min-width:220px">
+        <label>Template</label>
+        <select id="tplSelect"></select>
+      </div>
+      <div style="flex:1; min-width:220px">
+        <label>Name (für „Neu speichern")</label>
+        <input id="tplName" placeholder="edeka-frische-25" />
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="panel">
+        <h2>Elemente (JSON)</h2>
+        <div class="row" style="margin-bottom:8px; gap:6px">
+          <button class="ghost" data-snip="text">+ Text</button>
+          <button class="ghost" data-snip="price">+ Preis</button>
+          <button class="ghost" data-snip="code">+ Code</button>
+          <button class="ghost" data-snip="qrcode">+ QR</button>
+          <button class="ghost" data-snip="rule">+ Linie</button>
+          <button class="ghost" data-snip="newline">+ Leerzeile</button>
+          <button class="ghost" data-snip="cut">+ Schnitt</button>
+        </div>
+        <textarea id="json" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:12px">
+          <button class="primary" id="save">Speichern</button>
+          <button id="saveAs">Als neu speichern</button>
+          <span class="muted" id="msg"></span>
+        </div>
+      </div>
+      <div>
+        <h2>Vorschau</h2>
+        <div class="preview-wrap"><canvas id="preview"></canvas></div>
+        <p class="muted" style="font-size:12px;margin-top:8px">Layout-Simulation (Font A, 42 Zeichen). Der Pi rendert dieselbe Element-Liste mit dem echten ESC/POS-Encoder.</p>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireClient, renderReceipt, el } from './app.js';
+    const c = requireClient();
+    const canvas = document.getElementById('preview');
+    const ta = document.getElementById('json');
+
+    const SNIPPETS = {
+      text: { type: 'text', value: 'Text' },
+      price: { type: 'size', width: 2, height: 1 },
+      code: { type: 'text', value: 'Code: {{code}}' },
+      qrcode: { type: 'qrcode', value: '{{code}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+      rule: { type: 'rule', style: 'single' },
+      newline: { type: 'newline', count: 1 },
+      cut: { type: 'cut', value: 'full' },
+    };
+
+    const STARTER = {
+      elements: [
+        { type: 'align', value: 'center' },
+        { type: 'size', width: 2, height: 2 },
+        { type: 'bold', value: true },
+        { type: 'text', value: 'EDEKA Frische' },
+        { type: 'newline', count: 1 },
+        { type: 'size', width: 1, height: 1 },
+        { type: 'bold', value: false },
+        { type: 'text', value: 'GUTSCHEIN' },
+        { type: 'newline', count: 2 },
+        { type: 'size', width: 2, height: 1 },
+        { type: 'text', value: '{{price}} RABATT' },
+        { type: 'newline', count: 2 },
+        { type: 'size', width: 1, height: 1 },
+        { type: 'text', value: 'Code: {{code}}' },
+        { type: 'newline', count: 1 },
+        { type: 'qrcode', value: '{{code}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+        { type: 'newline', count: 2 },
+        { type: 'text', value: '{{date}} {{time}}' },
+        { type: 'newline', count: 3 },
+        { type: 'cut', value: 'full' },
+      ],
+    };
+
+    function draw() {
+      try {
+        const parsed = JSON.parse(ta.value);
+        const els = Array.isArray(parsed) ? parsed : parsed.elements;
+        renderReceipt(canvas, els || []);
+        document.getElementById('msg').textContent = '';
+      } catch (e) {
+        document.getElementById('msg').textContent = 'JSON: ' + e.message;
+      }
+    }
+    ta.addEventListener('input', draw);
+
+    document.querySelectorAll('[data-snip]').forEach(b => b.onclick = () => {
+      try {
+        const parsed = JSON.parse(ta.value);
+        const obj = parsed.elements ? parsed : { elements: parsed };
+        obj.elements.push(SNIPPETS[b.dataset.snip]);
+        ta.value = JSON.stringify(obj, null, 2);
+        draw();
+      } catch { /* ignore while invalid */ }
+    });
+
+    async function loadList() {
+      const { data } = await c.from('templates').select('id, name, template').order('name');
+      const sel = document.getElementById('tplSelect');
+      sel.replaceChildren(el('option', { value: '' }, '— Neues Template —'),
+        ...(data || []).map(t => el('option', { value: t.id }, t.name)));
+      sel._templates = data || [];
+      sel.onchange = () => {
+        const t = sel._templates.find(x => String(x.id) === sel.value);
+        if (t) {
+          document.getElementById('tplName').value = t.name;
+          ta.value = JSON.stringify(t.template, null, 2);
+        } else {
+          ta.value = JSON.stringify(STARTER, null, 2);
+        }
+        draw();
+      };
+    }
+
+    document.getElementById('save').onclick = async () => {
+      const sel = document.getElementById('tplSelect');
+      let template;
+      try { template = JSON.parse(ta.value); } catch (e) { document.getElementById('msg').textContent = 'JSON ungültig'; return; }
+      const name = document.getElementById('tplName').value.trim();
+      const msg = document.getElementById('msg');
+      if (sel.value) {
+        const { error } = await c.from('templates').update({ name, template }).eq('id', sel.value);
+        msg.textContent = error ? 'Fehler: ' + error.message : 'Gespeichert ✓';
+      } else {
+        const { error } = await c.from('templates').insert({ name, template });
+        msg.textContent = error ? 'Fehler: ' + error.message : 'Angelegt ✓';
+      }
+      if (!msg.textContent.startsWith('Fehler')) loadList();
+    };
+
+    document.getElementById('saveAs').onclick = async () => {
+      let template;
+      try { template = JSON.parse(ta.value); } catch { document.getElementById('msg').textContent = 'JSON ungültig'; return; }
+      const name = document.getElementById('tplName').value.trim();
+      if (!name) { document.getElementById('msg').textContent = 'Name nötig'; return; }
+      const { error } = await c.from('templates').insert({ name, template });
+      document.getElementById('msg').textContent = error ? 'Fehler: ' + error.message : 'Angelegt ✓';
+      if (!error) loadList();
+    };
+
+    ta.value = JSON.stringify(STARTER, null, 2);
+    draw();
+    loadList();
+  </script>
+</body>
+</html>

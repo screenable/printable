@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Printable · Box konfigurieren</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <span class="brand">🖨️ Printable</span>
+    <nav>
+      <a href="index.html">Boxen</a>
+      <a href="generator.html">Neue Box</a>
+      <a href="bon-editor.html">Bon-Editor</a>
+    </nav>
+  </header>
+  <main>
+    <h1 id="title">Box</h1>
+    <p class="muted" id="sub"></p>
+
+    <div class="panel">
+      <h2>Konfiguration</h2>
+      <div class="grid">
+        <div><label>Name</label><input id="name" /></div>
+        <div><label>Standort</label><input id="location" /></div>
+        <div><label>Gewünschte Version (Self-Update)</label><input id="desired" placeholder="v1.2.0" /></div>
+      </div>
+      <label>Drucker</label>
+      <div class="grid">
+        <div><label class="muted">Host</label><input id="printerHost" /></div>
+        <div><label class="muted">Port</label><input id="printerPort" type="number" /></div>
+        <div><label class="muted">Cooldown (ms)</label><input id="cooldownMs" type="number" /></div>
+      </div>
+      <label>Vollständige <code class="inline">config</code> (JSON)</label>
+      <textarea id="configJson" style="min-height:180px"></textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="saveCfg">Konfiguration speichern</button>
+        <span class="muted" id="cfgMsg"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Template-Mix (Preisstufen)</h2>
+      <p class="muted">Gewicht, Cooldown, Limit und Reward je Preis. Wird live von der Box übernommen.</p>
+      <div style="overflow-x:auto"><table id="mix"></table></div>
+      <div class="row" style="margin-top:12px">
+        <select id="addTpl"></select>
+        <button id="addRow">+ Template hinzufügen</button>
+        <button class="primary" id="saveMix">Mix speichern</button>
+        <span class="muted" id="mixMsg"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Gutschein-Pool</h2>
+      <div id="stock" class="muted">—</div>
+      <label style="margin-top:12px">Codes hinzufügen — Kategorie</label>
+      <input id="vpCategory" placeholder="edeka-frische-50" />
+      <label>Codes (einer pro Zeile)</label>
+      <textarea id="vpCodes" style="min-height:120px" placeholder="FRISCHE50-XYZ1&#10;FRISCHE50-XYZ2"></textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="addCodes">Codes in Pool laden</button>
+        <span class="muted" id="vpMsg"></span>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireClient, param, el } from './app.js';
+    const c = requireClient();
+    const id = param('id');
+    document.getElementById('title').textContent = id;
+
+    let templates = [];   // {id, name}
+    let mixRows = [];     // device_templates + template name
+
+    async function loadDevice() {
+      const { data, error } = await c.from('devices').select('*').eq('id', id).single();
+      if (error) { document.getElementById('sub').textContent = 'Fehler: ' + error.message; return; }
+      document.getElementById('sub').textContent = (data.name || '') + ' · ' + (data.location || '');
+      document.getElementById('name').value = data.name || '';
+      document.getElementById('location').value = data.location || '';
+      document.getElementById('desired').value = data.desired_version || '';
+      const cfg = data.config || {};
+      document.getElementById('printerHost').value = cfg.printer?.host || '';
+      document.getElementById('printerPort').value = cfg.printer?.port || 9100;
+      document.getElementById('cooldownMs').value = cfg.dispense?.cooldownMs ?? 1000;
+      document.getElementById('configJson').value = JSON.stringify(cfg, null, 2);
+    }
+
+    document.getElementById('saveCfg').onclick = async () => {
+      let cfg;
+      try { cfg = JSON.parse(document.getElementById('configJson').value); }
+      catch (e) { document.getElementById('cfgMsg').textContent = 'JSON ungültig: ' + e.message; return; }
+      // Strukturierte Felder in die config spiegeln
+      cfg.printer = { ...cfg.printer, host: document.getElementById('printerHost').value, port: Number(document.getElementById('printerPort').value) };
+      cfg.dispense = { ...cfg.dispense, cooldownMs: Number(document.getElementById('cooldownMs').value) };
+      const { error } = await c.from('devices').update({
+        name: document.getElementById('name').value || null,
+        location: document.getElementById('location').value || null,
+        desired_version: document.getElementById('desired').value || null,
+        config: cfg,
+      }).eq('id', id);
+      document.getElementById('cfgMsg').textContent = error ? 'Fehler: ' + error.message : 'Gespeichert ✓';
+      if (!error) loadDevice();
+    };
+
+    // ── Template-Mix ──────────────────────────────────────────────────────
+    const REWARDS = ['none', 'static', 'unique'];
+    function mixRow(r) {
+      const inp = (key, type = 'text', width = '90px') =>
+        el('input', { value: r[key] ?? '', type, style: `width:${width}`, oninput: e => r[key] = type === 'number' ? Number(e.target.value) : e.target.value });
+      const rewardSel = el('select', { onchange: e => r.reward_type = e.target.value, style: 'width:90px' },
+        ...REWARDS.map(v => el('option', { value: v, ...(r.reward_type === v ? { selected: '' } : {}) }, v)));
+      const chk = (key) => el('input', { type: 'checkbox', ...(r[key] ? { checked: '' } : {}), onchange: e => r[key] = e.target.checked });
+      return el('tr', {},
+        el('td', {}, r.template_name),
+        el('td', {}, inp('probability', 'number', '60px')),
+        el('td', {}, inp('cooldown_sec', 'number', '60px')),
+        el('td', {}, rewardSel),
+        el('td', {}, inp('voucher_category')),
+        el('td', {}, inp('static_code')),
+        el('td', {}, inp('daily_limit', 'number', '60px')),
+        el('td', {}, chk('is_fallback')),
+        el('td', {}, chk('enabled')),
+        el('td', {}, el('button', { class: 'ghost', onclick: () => { r._delete = true; renderMix(); } }, '✕')),
+      );
+    }
+    function renderMix() {
+      const t = document.getElementById('mix');
+      t.replaceChildren(
+        el('thead', {}, el('tr', {}, ...['Template','Gewicht','Cooldown s','Reward','Kategorie','Static-Code','Tageslimit','Fallback','Aktiv',''].map(h => el('th', {}, h)))),
+        el('tbody', {}, ...mixRows.filter(r => !r._delete).map(mixRow)),
+      );
+    }
+    async function loadMix() {
+      const { data: tpls } = await c.from('templates').select('id, name').order('name');
+      templates = tpls || [];
+      const sel = document.getElementById('addTpl');
+      sel.replaceChildren(...templates.map(t => el('option', { value: t.id }, t.name)));
+
+      const { data } = await c.from('device_templates')
+        .select('*, templates(name)').eq('device_id', id);
+      mixRows = (data || []).map(d => ({ ...d, template_name: d.templates?.name }));
+      renderMix();
+    }
+    document.getElementById('addRow').onclick = () => {
+      const tid = Number(document.getElementById('addTpl').value);
+      const tpl = templates.find(t => t.id === tid);
+      if (!tpl) return;
+      mixRows.push({ device_id: id, template_id: tid, template_name: tpl.name, probability: 10, cooldown_sec: 0, reward_type: 'none', enabled: true, is_fallback: false, data: {} });
+      renderMix();
+    };
+    document.getElementById('saveMix').onclick = async () => {
+      const msg = document.getElementById('mixMsg');
+      // Löschungen
+      const toDelete = mixRows.filter(r => r._delete && r.id).map(r => r.id);
+      if (toDelete.length) await c.from('device_templates').delete().in('id', toDelete);
+      // Upserts
+      const rows = mixRows.filter(r => !r._delete).map(r => ({
+        id: r.id, device_id: id, template_id: r.template_id,
+        probability: Number(r.probability) || 0, cooldown_sec: Number(r.cooldown_sec) || 0,
+        reward_type: r.reward_type || 'none', voucher_category: r.voucher_category || null,
+        static_code: r.static_code || null, daily_limit: r.daily_limit ? Number(r.daily_limit) : null,
+        is_fallback: !!r.is_fallback, enabled: r.enabled !== false, data: r.data || {},
+      }));
+      const { error } = await c.from('device_templates').upsert(rows, { onConflict: 'device_id,template_id' });
+      msg.textContent = error ? 'Fehler: ' + error.message : 'Gespeichert ✓';
+      if (!error) loadMix();
+    };
+
+    // ── Gutschein-Pool ────────────────────────────────────────────────────
+    async function loadStock() {
+      const { data } = await c.from('voucher_pool').select('category, status').limit(10000);
+      const agg = {};
+      for (const v of data || []) {
+        agg[v.category] ??= { available: 0, reserved: 0, claimed: 0 };
+        agg[v.category][v.status]++;
+      }
+      const box = document.getElementById('stock');
+      const entries = Object.entries(agg);
+      box.replaceChildren(entries.length
+        ? el('table', {},
+            el('thead', {}, el('tr', {}, el('th', {}, 'Kategorie'), el('th', {}, 'Frei'), el('th', {}, 'Reserviert'), el('th', {}, 'Eingelöst'))),
+            el('tbody', {}, ...entries.map(([k, v]) => el('tr', {}, el('td', {}, k), el('td', {}, v.available), el('td', {}, v.reserved), el('td', {}, v.claimed)))))
+        : el('span', {}, 'Pool leer.'));
+    }
+    document.getElementById('addCodes').onclick = async () => {
+      const cat = document.getElementById('vpCategory').value.trim();
+      const codes = document.getElementById('vpCodes').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const msg = document.getElementById('vpMsg');
+      if (!cat || !codes.length) { msg.textContent = 'Kategorie und Codes nötig.'; return; }
+      const rows = codes.map(code => ({ code, category: cat }));
+      const { error } = await c.from('voucher_pool').upsert(rows, { onConflict: 'code', ignoreDuplicates: true });
+      msg.textContent = error ? 'Fehler: ' + error.message : `${codes.length} Codes geladen ✓`;
+      if (!error) { document.getElementById('vpCodes').value = ''; loadStock(); }
+    };
+
+    loadDevice(); loadMix(); loadStock();
+  </script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Printable · Boxen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <span class="brand">🖨️ Printable</span>
+    <nav>
+      <a href="index.html" class="active">Boxen</a>
+      <a href="generator.html">Neue Box</a>
+      <a href="bon-editor.html">Bon-Editor</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Boxen</h1>
+    <p class="muted">Übersicht aller Geräte, Heartbeat und Gutschein-Bestand.</p>
+
+    <div class="panel">
+      <h2>Verbindung</h2>
+      <div class="grid">
+        <div>
+          <label>Supabase URL</label>
+          <input id="url" placeholder="https://xxxx.supabase.co" />
+        </div>
+        <div>
+          <label>Supabase Key (anon/service)</label>
+          <input id="key" type="password" placeholder="ey..." />
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="save">Speichern & laden</button>
+        <span class="muted" id="conn"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Geräte</h2>
+      <div id="devices">—</div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { getSettings, saveSettings, client, el } from './app.js';
+
+    const { url, key } = getSettings();
+    document.getElementById('url').value = url;
+    document.getElementById('key').value = key;
+
+    document.getElementById('save').onclick = () => {
+      saveSettings(document.getElementById('url').value, document.getElementById('key').value);
+      location.reload();
+    };
+
+    function status(seen) {
+      if (!seen) return el('span', { class: 'pill' }, 'nie gesehen');
+      const min = (Date.now() - new Date(seen).getTime()) / 60000;
+      return el('span', { class: 'pill ' + (min < 5 ? 'ok' : 'warn') },
+        min < 5 ? 'online' : `vor ${Math.round(min)} min`);
+    }
+
+    async function load() {
+      const c = client();
+      const conn = document.getElementById('conn');
+      if (!c) { conn.textContent = 'Nicht verbunden.'; return; }
+      conn.textContent = 'Verbunden.';
+      const { data, error } = await c.from('devices')
+        .select('id, name, location, last_seen, app_version, desired_version, voucher_stock')
+        .order('id');
+      const box = document.getElementById('devices');
+      if (error) { box.textContent = 'Fehler: ' + error.message; return; }
+      if (!data.length) { box.textContent = 'Noch keine Box angelegt.'; return; }
+
+      const table = el('table', {},
+        el('thead', {}, el('tr', {},
+          el('th', {}, 'ID'), el('th', {}, 'Name'), el('th', {}, 'Status'),
+          el('th', {}, 'Version'), el('th', {}, 'Bestand'), el('th', {}, ''))),
+        el('tbody', {}, ...data.map(d => el('tr', {},
+          el('td', {}, el('code', { class: 'inline' }, d.id)),
+          el('td', {}, d.name || '—'),
+          el('td', {}, status(d.last_seen)),
+          el('td', {}, (d.app_version || '?') + (d.desired_version && d.desired_version !== d.app_version ? ` → ${d.desired_version}` : '')),
+          el('td', {}, Object.entries(d.voucher_stock || {}).map(([k, v]) => `${k}:${v}`).join('  ') || '—'),
+          el('td', {}, el('a', { href: `device.html?id=${encodeURIComponent(d.id)}` },
+            el('button', { class: 'ghost' }, 'Konfigurieren')))
+        )))
+      );
+      box.replaceChildren(table);
+    }
+    load();
+  </script>
+</body>
+</html>
