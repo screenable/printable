@@ -243,7 +243,7 @@ Template gewählt → Reward-Typ?
   static  → Code aus Template nehmen
   unique  → nächsten unclaimed Code aus local_vouchers ziehen,
             lokal claimed=1 setzen, in Outbox schreiben
-            (Pool leer? → Trost-Template, siehe 5.4)
+            (Pool leer / Limit erreicht? → Trost-Template, siehe 5.3 & 5.5)
 → Template lokal füllen → drucken
 ```
 
@@ -251,21 +251,83 @@ Template gewählt → Reward-Typ?
 `status='claimed', claimed_at=…` gesetzt und der Pool wird wieder aufgefüllt
 (refill bis Sollbestand). Läuft im Hintergrund, blockiert nie den Druck.
 
-### 5.3 „Preis vorher bekannt" → braucht ohnehin kein Netz
+### 5.3 Limitierung & Wahrscheinlichkeiten offline durchsetzen
+
+> **Wichtig fürs Verständnis:** Unterschiedliche Preise sind bereits heute
+> unterschiedliche Templates (`edeka-frische-10/25/50`) mit eigenem Gewicht.
+> Bisher erledigte die Online-API die *Limitierung* dadurch, dass
+> `getVoucherCode(category)` **`null`** zurückgab, sobald eine Kategorie
+> erschöpft war → Trost-Wurst. Die *Wahrscheinlichkeiten* liefen dagegen **nie**
+> über die API, sondern schon immer lokal im `TemplateSelector`
+> (`Math.random() * totalWeight`). Wir müssen also nur das Limit von der Cloud
+> auf den Pi verlagern – die Wahrscheinlichkeit ist bereits offline.
+
+**Zwei Arten von Limit sauber trennen:**
+
+| Limit-Typ | Bedeutung | Offline-Durchsetzung |
+|---|---|---|
+| **Bestandslimit** | „es gibt nur 100 × 50 %-Codes insgesamt" | Ergibt sich **aus der Poolgröße**. Zentral genau 100 Codes generieren; jede Box **reserviert** einen Batch (`status='reserved', device_id`). Ein Einmal-Code liegt physisch auf **genau einer** Box → Summe aller Reservierungen ≤ 100. Globales Limit hält, **selbst wenn alle Boxen offline sind**. |
+| **Tempolimit / Rationierung** | „max. 2 × 50 % pro Tag, gleichmäßig verteilt" | **Lokaler Token-Bucket / Tageszähler** auf dem Pi. Rate wird zentral konfiguriert (`daily_limit` in `device_templates`), Durchsetzung ist rein lokal, Reset um Mitternacht. **Kein Netz nötig.** |
+
+Die meisten realen Fälle sind Kombinationen: Bestandslimit (physische Codes)
+**plus** optional Tempolimit (Pacing, damit der teure Preis nicht in der ersten
+Stunde leergeräumt wird).
+
+**Durchsetzung pro Knopfdruck** – `TemplateSelector.selectTemplate()` filtert
+heute schon eine `eligibleTemplates`-Liste (nur nach Cooldown). Wir erweitern
+**genau diesen Filter**:
+
+```
+Preisstufe ist wählbar, wenn:
+  (1) nicht auf Cooldown        ← existiert bereits
+  (2) lokaler Bestand > 0       ← neu: Bestandslimit
+  (3) Tages-Token verfügbar     ← neu: Tempolimit
+```
+
+Fällt eine Stufe raus, verschwindet ihr Gewicht aus der gewichteten Auswahl,
+**die restlichen Gewichte normalisieren sich automatisch neu**, und wenn alle
+teuren Stufen weg sind, trägt `trost-wurst` die Wahrscheinlichkeit. Das ist
+inhaltlich exakt das alte „null → Trost", nur **proaktiv und lokal** – kein Zug
+wird an eine leere Stufe „verschwendet".
+
+**Beispiel mit den aktuellen Zahlen:**
+
+| Preis | Template | Gewicht | Bestand (reserviert) | Tageslimit |
+|---|---|---|---|---|
+| 10 % | edeka-frische-10 | 22 | *static* (Code für alle) | – |
+| 25 % | edeka-frische-25 | 11 | 40 Codes | 40/Tag |
+| 50 % | edeka-frische-50 | 2 | 10 Codes | 2/Tag |
+| Trost | trost-wurst | 65 | ∞ | – |
+
+Sobald der 50 %-Bestand **oder** das 50 %-Tageskontingent (2) erschöpft ist,
+fällt Gewicht 2 raus → 50 % wird nicht mehr angeboten → das Gewicht verteilt
+sich auf 10/25/Trost. **Nie mehr als 10 × 50 % insgesamt und nie mehr als 2/Tag
+– garantiert, ganz ohne Netz.**
+
+**Fairness zwischen Boxen (nur wenn online, nie im heißen Pfad):** Läuft eine
+belebte Box leer, während eine ruhige Box reservierte Codes hortet, holt ein
+zentraler Job **nicht eingelöste Reservierungen** nach Lease-Ablauf zurück und
+verteilt sie um. Kleine, häufig nachgefüllte Batches (Lease-Prinzip) statt eines
+großen statischen Splits → bessere Auslastung bei nur gelegentlicher Verbindung.
+Netz wird also nur für **Zuteilung und Nachschub** gebraucht, **nie** für die
+Durchsetzung.
+
+### 5.4 „Preis vorher bekannt" → braucht ohnehin kein Netz
 
 Der Preis steckt schon heute im Template (`data.price: "10%"` in
 `webhook-templates.config.ts`). Der Preis ist also **statische Template-Daten**
 und nie ein Grund für einen Live-Call. Nur der *unique Code* war je der Grund –
 und den löst der Pool.
 
-### 5.4 Fallback-Strategie (die Antwort auf die Fragen im Auftrag)
+### 5.5 Fallback-Strategie (die Antwort auf die Fragen im Auftrag)
 
 Fallback = mehrstufig, nie „gar kein Bon":
 
 1. **`static`-Reward** → immer druckbar, egal ob online. ✅
 2. **`unique`-Reward, Pool hat Codes** → Code aus Pool. ✅ (offline)
-3. **`unique`-Reward, Pool leer** → **Trost-Template** (`trost-wurst` existiert
-   schon als `NO_LUCK_TEMPLATE`). ✅ Sicher, kein doppelt einlösbarer Code.
+3. **`unique`-Reward, Pool leer / Limit erreicht** → **Trost-Template**
+   (`trost-wurst` existiert schon als `NO_LUCK_TEMPLATE`). ✅ Sicher, kein
+   doppelt einlösbarer Code. (Deckt Bestands- **und** Tempolimit aus 5.3 ab.)
 4. **Was NICHT tun:** offline einen „platzhalter"-Einmalcode drucken, der später
    validiert werden soll. → Risiko Doppel-Einlösung/Betrug. Nur akzeptabel, wenn
    der Code in Wahrheit `static` (für alle gültig) ist – dann ist es Fall 1.
@@ -274,14 +336,16 @@ Fallback = mehrstufig, nie „gar kein Bon":
 nachladen; fällt er auf 0 und kann nicht nachladen → Dashboard-Warnung + Box
 schaltet automatisch auf Trost-Modus, bis wieder Codes da sind.
 
-### 5.5 Code-Änderungen
+### 5.6 Code-Änderungen
 
 - `voucher-helper.ts`: von „HTTP pro Druck" auf „`reserveBatch()` /
   `refill()` / `claimNext()` gegen lokalen SQLite-Store" umbauen.
-- `webhook-template.types.ts`: Feld `rewardType: 'static' | 'unique'` +
-  `staticCode?: string` ergänzen.
+- `webhook-template.types.ts`: Felder `rewardType: 'static' | 'unique'`,
+  `staticCode?`, `stockQuota?`, `dailyLimit?` ergänzen.
+- `template-selector.ts`: `eligibleTemplates`-Filter (5.3) um Bestand > 0 und
+  Tages-Token erweitern; lokaler Tageszähler mit Mitternachts-Reset.
 - `webhook.plugin.ts`: Live-Fetch durch `pool.claimNext(category)` ersetzen;
-  Fallback-Logik (5.4) bleibt strukturell wie heute, nur lokal.
+  Fallback-Logik (5.5) bleibt strukturell wie heute, nur lokal.
 
 ---
 
@@ -309,14 +373,18 @@ create table device_templates (
   cooldown_sec  int,
   voucher_category text,
   reward_type   text,         -- 'static' | 'unique'
-  static_code   text
+  static_code   text,          -- bei static: Code für alle
+  stock_quota   int,           -- Bestandslimit: Batch-Größe je Sync (5.3)
+  daily_limit   int            -- Tempolimit: lokaler Tageszähler (5.3), optional
 );
 ```
 
-Damit sind **Wahrscheinlichkeiten, Cooldowns, Preise und welches Bon-Layout**
-je Box im Web einstellbar – ohne Deploy. `TemplateSelector`
-(`src/helpers/template-selector.ts`) bleibt unverändert, bekommt seine Liste
-nur aus Supabase statt aus der `.ts`-Datei.
+Damit sind **Preis, Bon-Layout, Wahrscheinlichkeit, Cooldown, Bestands- und
+Tempolimit** je Box im Web einstellbar – ohne Deploy. Der Preis ist damit die
+zentrale Einheit, die Template + Gewicht + Limit + Code-Pool bündelt.
+`TemplateSelector` (`src/helpers/template-selector.ts`) bekommt seine Liste aus
+Supabase statt aus der `.ts`-Datei; der Eligibility-Filter wird gemäß 5.3 um
+Bestand und Tages-Token erweitert.
 
 ### 6.3 Technische Umsetzung
 - Eigene kleine App (empfohlen: **Next.js oder Vite + React** auf Vercel/Netlify)
@@ -419,9 +487,13 @@ verschwinden aus dem heißen Pfad. Supabase bleibt Backend für Sync & Dashboard
 - **Offline-Gutscheine:** lokaler vorproduzierter Pool (SQLite) + Reservierungs-/
   Outbox-Sync. `static`-Codes wo möglich (trivial offline), `unique`-Codes aus
   dem Pool.
+- **Limits & Wahrscheinlichkeiten offline:** Wahrscheinlichkeit lief immer schon
+  lokal. Bestandslimit ergibt sich aus der reservierten Poolgröße (ein Code liegt
+  auf genau einer Box → globaler Deckel hält auch offline); Tempolimit ist ein
+  lokaler Tageszähler. Zentral konfiguriert, lokal durchgesetzt.
 - **Fallback ist eine gute Idee — richtig gemacht:** Trost-Template bei leerem
-  Pool ist sicher; einen echten Einmal-Code offline „auf Verdacht" zu drucken
-  ist es nicht.
+  Pool oder erreichtem Limit ist sicher; einen echten Einmal-Code offline „auf
+  Verdacht" zu drucken ist es nicht.
 - **Konfig & Bons im Web:** beides schreibt nur in Supabase-Tabellen, die der Pi
   live nachzieht — kein Deploy mehr für Preise, Wahrscheinlichkeiten oder Layout.
 - **Deployment:** `install.sh` + systemd + Supabase-gesteuertes Update mit
