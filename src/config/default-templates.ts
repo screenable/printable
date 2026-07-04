@@ -7,7 +7,11 @@
 import type { RuntimeTemplate } from '../types/dispense.types';
 import type { FilledTemplate } from '../types/template.validation';
 
-/** Kleines Standard-Layout für einen Rabatt-Bon mit Code. */
+/**
+ * Standard-Layout für einen Rabatt-Bon mit dynamischem Code (App-Gutschein):
+ * der Code wird als Text gedruckt UND als QR mit der Einlöse-URL angehängt.
+ * Die Einlöse-URL ist frei editierbar; `{{code}}` wird auch im QR-Wert ersetzt.
+ */
 function discountLayout(headline: string): FilledTemplate {
   return {
     elements: [
@@ -26,7 +30,10 @@ function discountLayout(headline: string): FilledTemplate {
       { type: 'size', width: 1, height: 1 },
       { type: 'text', value: 'Code: {{code}}' },
       { type: 'newline', count: 1 },
-      { type: 'qrcode', value: '{{code}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+      // QR zeigt auf die Einlöse-URL der App (individueller, ablaufender Code).
+      { type: 'qrcode', value: '{{redeem_url}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+      { type: 'newline', count: 1 },
+      { type: 'text', value: 'In der App einlösen' },
       { type: 'newline', count: 2 },
       { type: 'text', value: '{{date}} {{time}}' },
       { type: 'newline', count: 3 },

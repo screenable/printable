@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { getClient } from '../lib/supabase';
 import type { DeviceRow, DeviceTemplateRow, RewardType, TemplateRow } from '../lib/types';
 
@@ -19,6 +19,21 @@ const templates = ref<TemplateRow[]>([]);
 const mix = ref<DeviceTemplateRow[]>([]);
 const addTplId = ref<number | null>(null);
 const mixMsg = ref('');
+
+// Summe der Gewichte aller aktiven Zeilen – Basis für die Prozentanzeige.
+const totalWeight = computed(() =>
+  mix.value
+    .filter(r => !r._delete && r.enabled !== false)
+    .reduce((s, r) => s + (Number(r.probability) || 0), 0),
+);
+
+// Effektive Wahrscheinlichkeit einer Zeile (Gewicht / Summe der Gewichte).
+function pct(r: DeviceTemplateRow): string {
+  if (r._delete || r.enabled === false) return '–';
+  const t = totalWeight.value;
+  if (t <= 0) return '0 %';
+  return Math.round(((Number(r.probability) || 0) / t) * 100) + ' %';
+}
 
 // Gutschein-Pool
 const stock = ref<Record<string, { available: number; reserved: number; claimed: number }>>({});
@@ -180,12 +195,16 @@ onMounted(() => {
   <!-- Template-Mix -->
   <section class="panel mb-5">
     <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-1">Template-Mix (Preisstufen)</h2>
-    <p class="text-slate-400 text-sm mb-3">Gewicht, Cooldown, Limit und Reward je Preis — wird live von der Box übernommen.</p>
+    <p class="text-slate-400 text-sm mb-3">
+      Gewicht, Cooldown, Limit und Reward je Preis — wird live von der Box übernommen.
+      Das <strong>Gewicht</strong> ist relativ; die Spalte <strong>≈ Anteil</strong> zeigt die
+      resultierende Wahrscheinlichkeit.
+    </p>
     <div class="overflow-x-auto">
       <table class="w-full">
         <thead>
           <tr>
-            <th class="th">Template</th><th class="th">Gewicht</th><th class="th">Cooldown s</th>
+            <th class="th">Template</th><th class="th">Gewicht</th><th class="th">≈ Anteil</th><th class="th">Cooldown s</th>
             <th class="th">Reward</th><th class="th">Kategorie</th><th class="th">Static-Code</th>
             <th class="th">Tageslimit</th><th class="th">Fallback</th><th class="th">Aktiv</th><th class="th"></th>
           </tr>
@@ -195,6 +214,7 @@ onMounted(() => {
             <tr v-if="!r._delete">
               <td class="td whitespace-nowrap">{{ r.template_name }}</td>
               <td class="td"><input v-model.number="r.probability" type="number" class="input w-16" /></td>
+              <td class="td text-slate-400 tabular-nums">{{ pct(r) }}</td>
               <td class="td"><input v-model.number="r.cooldown_sec" type="number" class="input w-16" /></td>
               <td class="td">
                 <select v-model="r.reward_type" class="input w-24">

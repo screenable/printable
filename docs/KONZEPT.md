@@ -253,10 +253,14 @@ von Belohnungen unterscheidet.**
 
 ### 5.1 Zwei Reward-Typen unterscheiden
 
-| Typ | Beispiel | Offline-Strategie |
-|---|---|---|
-| **`static`** | „10 % auf alles" mit einem allgemeingültigen Code, der für jeden gilt | Code steht **direkt im Template**. Komplett offline, unbegrenzt druckbar. Kein Pool nötig. |
-| **`unique`** | Einmal-Code, der nach Einlösung verbraucht ist | Kommt aus einem **vorproduzierten Pool** (siehe 5.2). Offline nur so lange, wie Codes im Vorrat sind. |
+| Typ | Beispiel | Druckbild | Offline-Strategie |
+|---|---|---|---|
+| **`static`** | Fester Kassen-Code, der für jeden gilt (an der Kasse einlösbar) | **Barcode oder Bild** (`barcode`/`image`-Element), meist ein Barcode-Bild | Code/Bild steht **direkt im Template**. Komplett offline, unbegrenzt druckbar. Kein Pool nötig. |
+| **`unique`** | Individueller App-Code, der nach Einlösung **abläuft** | **Code als Text + QR** auf die Einlöse-URL der App (`{{code}}` + `{{redeem_url}}`) | Kommt aus einem **vorproduzierten Pool** (siehe 5.2). Offline nur so lange, wie Codes im Vorrat sind. |
+
+Der Code wird also **gedruckt und zusätzlich als QR** angehängt: bei `static`
+ein Kassen-Barcode, bei `unique` ein QR auf `{{redeem_url}}` (= konfigurierbare
+Basis-URL + Code, siehe `dispense.redeemBaseUrl` bzw. `REDEEM_BASE_URL`).
 
 > **Wichtigste Empfehlung:** Wo das Geschäft es erlaubt, `static`-Codes
 > verwenden – dann ist Offline trivial. `unique`-Codes nur da, wo Einmaligkeit

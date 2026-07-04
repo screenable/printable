@@ -13,7 +13,7 @@ values (
     'gpio',     jsonb_build_object('buttonPin',17,'debounceMs',10,'buzzerLedPin',5),
     'neopixel', jsonb_build_object('count',12,'gpio',18,'brightness',80),
     'led',      jsonb_build_object('doneHoldMs',2200,'errorHoldMs',3000,'workingFallbackMs',15000),
-    'dispense', jsonb_build_object('cooldownMs',1000)
+    'dispense', jsonb_build_object('cooldownMs',1000,'redeemBaseUrl','https://app.screenable.io/r/')
   )
 )
 on conflict (id) do update set config = excluded.config;

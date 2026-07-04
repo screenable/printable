@@ -95,6 +95,7 @@ export const CONFIG = {
     },
     dispense: {
       cooldownMs: num(WEBHOOK_COOLDOWN_MS, 1000),
+      redeemBaseUrl: process.env.REDEEM_BASE_URL ?? 'https://app.screenable.io/r/',
     },
   },
 };

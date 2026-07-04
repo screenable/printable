@@ -35,6 +35,7 @@ export function renderReceipt(
 
   const data: Record<string, string> = {
     code: 'ABCD-1234',
+    redeem_url: 'https://app.screenable.io/r/ABCD-1234',
     price: '25%',
     date: '03.07.2026',
     time: '14:20',

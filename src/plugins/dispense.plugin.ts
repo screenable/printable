@@ -83,8 +83,17 @@ export default fp(async fastify => {
       return;
     }
 
+    // Einlöse-URL für den QR-Code dynamischer Codes: base + code.
+    // base kommt pro Template (data.redeemBaseUrl) oder aus der Geräte-Config.
+    const redeemBase =
+      (template.data.redeemBaseUrl as string | undefined) ??
+      configService.get().dispense.redeemBaseUrl ??
+      '';
+    const redeemUrl = code && redeemBase ? redeemBase + encodeURIComponent(code) : '';
+
     const data: FillData = {
       code,
+      redeem_url: redeemUrl,
       ...(template.data as Record<string, string | number>),
     };
 

@@ -25,6 +25,8 @@ export interface DeviceConfig {
   };
   dispense: {
     cooldownMs: number;
+    /** Basis-URL für den Einlöse-QR-Code dynamischer Codes ({{redeem_url}} = base + code). */
+    redeemBaseUrl?: string;
   };
 }
 

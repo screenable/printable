@@ -21,7 +21,9 @@ const STARTER: ReceiptTemplate = {
     { type: 'size', width: 1, height: 1 },
     { type: 'text', value: 'Code: {{code}}' },
     { type: 'newline', count: 1 },
-    { type: 'qrcode', value: '{{code}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+    { type: 'qrcode', value: '{{redeem_url}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+    { type: 'newline', count: 1 },
+    { type: 'text', value: 'In der App einlösen' },
     { type: 'newline', count: 2 },
     { type: 'text', value: '{{date}} {{time}}' },
     { type: 'newline', count: 3 },
@@ -33,13 +35,18 @@ const SNIPPETS: Record<string, ReceiptElement> = {
   text: { type: 'text', value: 'Text' },
   price: { type: 'text', value: '{{price}} RABATT' },
   code: { type: 'text', value: 'Code: {{code}}' },
-  qrcode: { type: 'qrcode', value: '{{code}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+  // Dynamischer Code: QR auf die Einlöse-URL der App.
+  'qr-einlösen': { type: 'qrcode', value: '{{redeem_url}}', options: { model: 2, size: 6, errorlevel: 'm' } },
+  // Statischer Code an der Kasse: Barcode (aus Code-Wert) …
+  barcode: { type: 'barcode', value: '{{code}}', symbology: 'ean13', height: 60 },
+  // … oder ein festes Barcode-Bild.
+  bild: { type: 'image', input: 'https://beispiel.de/barcode.png', width: 300, height: 120 },
   rule: { type: 'rule', style: 'single' },
   newline: { type: 'newline', count: 1 },
   cut: { type: 'cut', value: 'full' },
 };
 
-const placeholders = '{{code}}, {{price}}, {{date}}, {{time}}';
+const placeholders = '{{code}}, {{redeem_url}}, {{price}}, {{date}}, {{time}}';
 
 const templates = ref<TemplateRow[]>([]);
 const selectedId = ref<number | ''>('');
