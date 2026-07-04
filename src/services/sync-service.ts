@@ -61,13 +61,15 @@ export class SyncService {
     try {
       const { data, error } = await supabase
         .from('devices')
-        .select('config, desired_version')
+        .select('config, desired_version, dispensed')
         .eq('id', CONFIG.DEVICE_ID)
         .single();
       if (error) throw error;
       if (data) {
         configService.apply(data.config as PartialDeviceConfig);
         this.desiredVersion = data.desired_version ?? undefined;
+        // Gesamt-Zähler vom Backend übernehmen (robust gegen Re-Image).
+        if (data.dispensed) voucherStore.seedTotals(data.dispensed as Record<string, number>);
       }
     } catch (err) {
       this.log.warn({ err }, 'sync: pullConfig failed (offline?) – using cached config');
@@ -79,7 +81,7 @@ export class SyncService {
       const { data, error } = await supabase
         .from('device_templates')
         .select(
-          'probability, cooldown_sec, voucher_category, reward_type, static_code, daily_limit, is_fallback, data, templates(name, template)',
+          'probability, cooldown_sec, voucher_category, reward_type, static_code, daily_limit, total_limit, is_fallback, data, templates(name, template)',
         )
         .eq('device_id', CONFIG.DEVICE_ID)
         .eq('enabled', true);
@@ -104,6 +106,7 @@ export class SyncService {
           rewardType: (row.reward_type as RuntimeTemplate['rewardType']) ?? 'none',
           staticCode: row.static_code ?? undefined,
           dailyLimit: row.daily_limit ?? undefined,
+          totalLimit: row.total_limit ?? undefined,
           isFallback: row.is_fallback ?? false,
           layout: parsed.data,
         });
@@ -206,6 +209,7 @@ export class SyncService {
           last_seen: new Date().toISOString(),
           app_version: getCurrentVersion(),
           voucher_stock: voucherStore.remainingByCategory(),
+          dispensed: voucherStore.allTotals(),
         })
         .eq('id', CONFIG.DEVICE_ID);
     } catch (err) {
@@ -221,6 +225,7 @@ interface DeviceTemplateRow {
   reward_type: string | null;
   static_code: string | null;
   daily_limit: number | null;
+  total_limit: number | null;
   is_fallback: boolean | null;
   data: unknown;
   templates: { name: string; template: unknown } | { name: string; template: unknown }[] | null;

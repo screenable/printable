@@ -19,6 +19,9 @@ import type { RuntimeTemplate } from '../types/dispense.types';
 export default fp(async fastify => {
   // Prüft, ob ein Template gerade ausgegeben werden darf (Bestand + Tageslimit).
   const isAvailable = (t: RuntimeTemplate): boolean => {
+    if (t.totalLimit && t.totalLimit > 0 && voucherStore.totalCount(t.name) >= t.totalLimit) {
+      return false; // Gesamt-Limit erreicht (auch für statische Codes)
+    }
     if (t.dailyLimit && t.dailyLimit > 0 && voucherStore.todayCount(t.name) >= t.dailyLimit) {
       return false;
     }
@@ -73,8 +76,9 @@ export default fp(async fastify => {
       code = template.staticCode;
     }
 
-    // 3) Tageszähler hochzählen (Tempolimit).
+    // 3) Zähler hochzählen (Tempolimit + Gesamt-Limit).
     voucherStore.incrementToday(template.name);
+    voucherStore.incrementTotal(template.name);
 
     // 4) Layout holen + lokal füllen.
     const layout = templateRegistry.layoutFor(template.name);

@@ -18,6 +18,7 @@ function today(): string {
 export class VoucherStore {
   private vouchers: JsonStore<{ items: VoucherRecord[] }>;
   private usage: JsonStore<DailyUsage>;
+  private totals: JsonStore<{ counts: Record<string, number> }>;
 
   constructor(dataDir: string = CONFIG.DATA_DIR) {
     this.vouchers = new JsonStore(join(dataDir, 'vouchers.json'), { items: [] });
@@ -25,6 +26,7 @@ export class VoucherStore {
       date: today(),
       counts: {},
     });
+    this.totals = new JsonStore(join(dataDir, 'totals.json'), { counts: {} });
     this.rollDateIfNeeded();
   }
 
@@ -112,6 +114,39 @@ export class VoucherStore {
     this.rollDateIfNeeded();
     this.usage.update(state => {
       state.counts[templateName] = (state.counts[templateName] ?? 0) + 1;
+      return null;
+    });
+  }
+
+  // ─────────────────────────────────────────────────────── Gesamt-Limit ─────
+
+  /** Wie oft wurde `templateName` insgesamt ausgegeben (Lebenszeit, kein Reset)? */
+  totalCount(templateName: string): number {
+    return this.totals.get().counts[templateName] ?? 0;
+  }
+
+  /** Zählt eine Ausgabe von `templateName` gesamt hoch. */
+  incrementTotal(templateName: string): void {
+    this.totals.update(state => {
+      state.counts[templateName] = (state.counts[templateName] ?? 0) + 1;
+      return null;
+    });
+  }
+
+  /** Alle Gesamt-Zähler (für die Telemetrie an Supabase). */
+  allTotals(): Record<string, number> {
+    return { ...this.totals.get().counts };
+  }
+
+  /**
+   * Übernimmt vom Backend gemeldete Zähler (z.B. nach Neuaufsetzen der SD-Karte),
+   * ohne je zurückzuzählen – so bleibt das Gesamt-Limit auch nach Re-Image korrekt.
+   */
+  seedTotals(remote: Record<string, number>): void {
+    this.totals.update(state => {
+      for (const [name, count] of Object.entries(remote)) {
+        if ((state.counts[name] ?? 0) < count) state.counts[name] = count;
+      }
       return null;
     });
   }

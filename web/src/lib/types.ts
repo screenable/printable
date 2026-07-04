@@ -17,6 +17,7 @@ export interface DeviceRow {
   app_version: string | null;
   last_seen: string | null;
   voucher_stock: Record<string, number> | null;
+  dispensed: Record<string, number> | null;
 }
 
 export interface TemplateRow {
@@ -38,6 +39,7 @@ export interface DeviceTemplateRow {
   voucher_category: string | null;
   static_code: string | null;
   daily_limit: number | null;
+  total_limit: number | null;
   is_fallback: boolean;
   _delete?: boolean;
 }

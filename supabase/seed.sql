@@ -20,15 +20,16 @@ on conflict (id) do update set config = excluded.config;
 
 -- 2) Template-Mix (Preis = Template + Gewicht + Limit + Reward)
 insert into public.device_templates
-  (device_id, template_id, probability, cooldown_sec, data, reward_type, voucher_category, daily_limit, is_fallback)
+  (device_id, template_id, probability, cooldown_sec, data, reward_type, voucher_category, daily_limit, total_limit, is_fallback)
 select 'box-edeka-nord-01', t.id, v.probability, v.cooldown_sec, v.data::jsonb,
-       v.reward_type::reward_type, v.voucher_category, v.daily_limit, v.is_fallback
+       v.reward_type::reward_type, v.voucher_category, v.daily_limit, v.total_limit, v.is_fallback
 from (values
-  ('edeka-frische-10', 22,  0, '{"price":"10%"}', 'unique', 'edeka-frische-10', null::int, false),
-  ('edeka-frische-25', 11, 10, '{"price":"25%"}', 'unique', 'edeka-frische-25', 40,        false),
-  ('edeka-frische-50',  2, 60, '{"price":"50%"}', 'unique', 'edeka-frische-50', 2,         false),
-  ('trost-wurst',      65,  0, '{}',              'none',   null,               null,      true)
-) as v(name, probability, cooldown_sec, data, reward_type, voucher_category, daily_limit, is_fallback)
+  -- name, gewicht, cooldown, data, reward, kategorie, tageslimit, gesamtlimit, fallback
+  ('edeka-frische-10', 22,  0, '{"price":"10%"}', 'unique', 'edeka-frische-10', null::int, null::int, false),
+  ('edeka-frische-25', 11, 10, '{"price":"25%"}', 'unique', 'edeka-frische-25', 40,        200,       false),
+  ('edeka-frische-50',  2, 60, '{"price":"50%"}', 'unique', 'edeka-frische-50', 2,         50,        false),
+  ('trost-wurst',      65,  0, '{}',              'none',   null,               null,      null,      true)
+) as v(name, probability, cooldown_sec, data, reward_type, voucher_category, daily_limit, total_limit, is_fallback)
 join public.templates t on t.name = v.name
 on conflict (device_id, template_id) do nothing;
 

@@ -59,3 +59,24 @@ describe('VoucherStore – Tageslimit', () => {
     assert.equal(store.todayCount('t25'), 0);
   });
 });
+
+describe('VoucherStore – Gesamt-Limit', () => {
+  test('totalCount increments and is exposed via allTotals', () => {
+    const store = freshStore();
+    store.incrementTotal('frische');
+    store.incrementTotal('frische');
+    store.incrementTotal('obst');
+    assert.equal(store.totalCount('frische'), 2);
+    assert.deepEqual(store.allTotals(), { frische: 2, obst: 1 });
+  });
+
+  test('seedTotals lifts local counters up but never down', () => {
+    const store = freshStore();
+    store.incrementTotal('frische'); // local = 1
+    store.seedTotals({ frische: 480, obst: 30 }); // re-image scenario
+    assert.equal(store.totalCount('frische'), 480);
+    assert.equal(store.totalCount('obst'), 30);
+    store.seedTotals({ frische: 10 }); // stale/lower remote must not lower it
+    assert.equal(store.totalCount('frische'), 480);
+  });
+});

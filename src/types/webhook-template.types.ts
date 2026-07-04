@@ -33,6 +33,9 @@ export interface WebhookTemplate {
   /** Tempolimit: maximale Ausgaben pro Tag (lokaler Zähler). 0/undefined = kein Limit. */
   dailyLimit?: number;
 
+  /** Gesamt-Limit: maximale Ausgaben insgesamt (lokaler Lebenszeit-Zähler, auch für static). */
+  totalLimit?: number;
+
   /** Wird dieses Template als Trost-Fallback benutzt, wenn nichts anderes geht? */
   isFallback?: boolean;
 }

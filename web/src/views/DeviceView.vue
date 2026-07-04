@@ -35,10 +35,50 @@ function pct(r: DeviceTemplateRow): string {
   return Math.round(((Number(r.probability) || 0) / t) * 100) + ' %';
 }
 
+// Von der Box gemeldete Ausgabe-Zähler je Template-Name.
+const dispensed = ref<Record<string, number>>({});
 // Gutschein-Pool
 const stock = ref<Record<string, { available: number; reserved: number; claimed: number }>>({});
 const vp = ref({ category: '', codes: '' });
 const vpMsg = ref('');
+
+const REWARD_LABEL: Record<string, string> = {
+  none: 'Trost',
+  static: 'Statischer Code',
+  unique: 'App-Code',
+};
+
+// „Ausgegeben" je Preis: bei App-Codes = eingelöste Codes, sonst Box-Zähler.
+function dispensedFor(r: DeviceTemplateRow): number {
+  if (r.reward_type === 'unique' && r.voucher_category) {
+    return stock.value[r.voucher_category]?.claimed ?? 0;
+  }
+  return dispensed.value[r.template_name ?? ''] ?? 0;
+}
+
+// „Verbleibend": bei App-Codes = freie Pool-Codes, sonst Max − Ausgegeben.
+function remainingFor(r: DeviceTemplateRow): string {
+  if (r.reward_type === 'unique' && r.voucher_category) {
+    return String(stock.value[r.voucher_category]?.available ?? 0);
+  }
+  if (r.total_limit != null) return String(Math.max(0, r.total_limit - dispensedFor(r)));
+  return '∞';
+}
+
+// Status-Badge für eine Zeile.
+function statusFor(r: DeviceTemplateRow): { text: string; cls: string } {
+  if (r.enabled === false) return { text: 'Gesperrt', cls: 'pill' };
+  if (r.reward_type === 'unique' && r.voucher_category) {
+    const avail = stock.value[r.voucher_category]?.available ?? 0;
+    return avail > 0
+      ? { text: 'Aktiv', cls: 'pill pill-ok' }
+      : { text: 'Pool leer', cls: 'pill pill-warn' };
+  }
+  if (r.total_limit != null && dispensedFor(r) >= r.total_limit) {
+    return { text: 'Erschöpft', cls: 'pill pill-warn' };
+  }
+  return { text: 'Aktiv', cls: 'pill pill-ok' };
+}
 
 async function loadDevice() {
   const c = getClient();
@@ -47,6 +87,7 @@ async function loadDevice() {
   if (error) { sub.value = 'Fehler: ' + error.message; return; }
   const d = data as DeviceRow;
   device.value = d;
+  dispensed.value = d.dispensed || {};
   sub.value = [d.name, d.location].filter(Boolean).join(' · ');
   cfg.value = {
     name: d.name || '',
@@ -110,6 +151,7 @@ function addRow() {
     voucher_category: null,
     static_code: null,
     daily_limit: null,
+    total_limit: null,
     is_fallback: false,
   });
 }
@@ -129,6 +171,7 @@ async function saveMix() {
     voucher_category: r.voucher_category || null,
     static_code: r.static_code || null,
     daily_limit: r.daily_limit ? Number(r.daily_limit) : null,
+    total_limit: r.total_limit ? Number(r.total_limit) : null,
     is_fallback: !!r.is_fallback,
     enabled: r.enabled !== false,
     data: r.data || {},
@@ -192,38 +235,43 @@ onMounted(() => {
     </div>
   </section>
 
-  <!-- Template-Mix -->
+  <!-- Preise (Template-Mix) -->
   <section class="panel mb-5">
-    <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-1">Template-Mix (Preisstufen)</h2>
+    <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-1">Preise</h2>
     <p class="text-slate-400 text-sm mb-3">
-      Gewicht, Cooldown, Limit und Reward je Preis — wird live von der Box übernommen.
-      Das <strong>Gewicht</strong> ist relativ; die Spalte <strong>≈ Anteil</strong> zeigt die
-      resultierende Wahrscheinlichkeit.
+      Jede Zeile ist ein <strong>Preis</strong> = Bon-Layout + Gewicht + Reward + Limit.
+      Das <strong>Gewicht</strong> ist relativ (≈ Anteil zeigt die Wahrscheinlichkeit; der
+      Trost-Preis mit Fallback ✓ bekommt automatisch den Rest). <strong>Max</strong> = Gesamt-Stückzahl
+      (auch für statische Codes). „Aktiv" abwählen = Preis <strong>sperren</strong>.
     </p>
     <div class="overflow-x-auto">
       <table class="w-full">
         <thead>
           <tr>
-            <th class="th">Template</th><th class="th">Gewicht</th><th class="th">≈ Anteil</th><th class="th">Cooldown s</th>
+            <th class="th">Preis (Template)</th><th class="th">Status</th><th class="th">Gewicht</th><th class="th">≈ Anteil</th>
             <th class="th">Reward</th><th class="th">Kategorie</th><th class="th">Static-Code</th>
-            <th class="th">Tageslimit</th><th class="th">Fallback</th><th class="th">Aktiv</th><th class="th"></th>
+            <th class="th">Max</th><th class="th">Ausg. / Rest</th>
+            <th class="th">Cooldown s</th><th class="th">Tag</th><th class="th">Fallback</th><th class="th">Aktiv</th><th class="th"></th>
           </tr>
         </thead>
         <tbody>
           <template v-for="(r, i) in mix" :key="r.id ?? 'new-' + i">
             <tr v-if="!r._delete">
               <td class="td whitespace-nowrap">{{ r.template_name }}</td>
+              <td class="td"><span :class="statusFor(r).cls">{{ statusFor(r).text }}</span></td>
               <td class="td"><input v-model.number="r.probability" type="number" class="input w-16" /></td>
               <td class="td text-slate-400 tabular-nums">{{ pct(r) }}</td>
-              <td class="td"><input v-model.number="r.cooldown_sec" type="number" class="input w-16" /></td>
               <td class="td">
-                <select v-model="r.reward_type" class="input w-24">
-                  <option v-for="rw in REWARDS" :key="rw" :value="rw">{{ rw }}</option>
+                <select v-model="r.reward_type" class="input w-28">
+                  <option v-for="rw in REWARDS" :key="rw" :value="rw">{{ REWARD_LABEL[rw] }}</option>
                 </select>
               </td>
-              <td class="td"><input v-model="r.voucher_category" class="input w-32" /></td>
-              <td class="td"><input v-model="r.static_code" class="input w-28" /></td>
-              <td class="td"><input v-model.number="r.daily_limit" type="number" class="input w-16" /></td>
+              <td class="td"><input v-model="r.voucher_category" class="input w-32" :disabled="r.reward_type !== 'unique'" /></td>
+              <td class="td"><input v-model="r.static_code" class="input w-28" :disabled="r.reward_type !== 'static'" /></td>
+              <td class="td"><input v-model.number="r.total_limit" type="number" class="input w-16" placeholder="∞" /></td>
+              <td class="td whitespace-nowrap tabular-nums text-slate-400">{{ dispensedFor(r) }} / {{ remainingFor(r) }}</td>
+              <td class="td"><input v-model.number="r.cooldown_sec" type="number" class="input w-16" /></td>
+              <td class="td"><input v-model.number="r.daily_limit" type="number" class="input w-14" /></td>
               <td class="td text-center"><input v-model="r.is_fallback" type="checkbox" /></td>
               <td class="td text-center"><input v-model="r.enabled" type="checkbox" /></td>
               <td class="td"><button class="btn btn-ghost px-2 py-1" @click="r._delete = true">✕</button></td>
@@ -236,8 +284,8 @@ onMounted(() => {
       <select v-model.number="addTplId" class="input w-auto">
         <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
       </select>
-      <button class="btn" @click="addRow">+ Template hinzufügen</button>
-      <button class="btn btn-primary" @click="saveMix">Mix speichern</button>
+      <button class="btn" @click="addRow">+ Preis hinzufügen</button>
+      <button class="btn btn-primary" @click="saveMix">Preise speichern</button>
       <span class="text-sm text-slate-400">{{ mixMsg }}</span>
     </div>
   </section>
