@@ -141,6 +141,46 @@ nächsten Sync (Realtime-Subscription oder Polling alle ~30 s).
   `device_templates` (siehe 6.), Datei wird zum Offline-Fallback-Cache.
 - Neuer Plugin `config.plugin.ts`, der beim Boot die Remote-Config lädt/cached.
 
+### 3.5 Betrieb: mehrere Boxen an EINER geteilten Supabase
+
+Reale Aufstellung: Die Boxen stehen **physisch zugänglich im Supermarkt**.
+Aktuell gibt es **eine** Box, mehrere sind denkbar, und **alle teilen sich eine
+Supabase-Instanz** (keine eigene Instanz je Box).
+
+**Was das Datenmodell schon korrekt abbildet (Mehr-Box-fähig):**
+
+- Jede Box ist eine eigene `devices`-Row (Schlüssel = `DEVICE_ID`); Config,
+  Template-Mix (`device_templates`), Heartbeat und Historie sind pro Gerät
+  getrennt.
+- Der Gutschein-Pool ist zentral; `reserve_vouchers` weist Codes per
+  `FOR UPDATE SKIP LOCKED` exklusiv einer Box zu → **kein Doppel-Einlösen über
+  Boxen hinweg**, selbst bei gleichzeitigem Nachschub.
+- **Pool-Scoping je Markt** braucht kein Schema: Es genügt eine Namens­konvention
+  für `voucher_category` (z.B. `nord:edeka-frische-50` vs.
+  `sued:edeka-frische-50`). Ein globaler Topf = gleiche Kategorie über alle
+  Boxen; getrennte Töpfe = Präfix je Markt. Diese Entscheidung fällt erst mit
+  der zweiten Box an.
+
+**Sicherheit – bewusst aufgeschobene Härtung.** Aktuell hält jede Box denselben
+Supabase-Key in `.env`, und die RLS-Policies sind offen (`using(true)`). Bei
+einer Box im geschützten Umfeld ist das akzeptabel. **Sobald Boxen offen im Markt
+stehen oder mehrere dazukommen, ist das ein Risiko:** Wer den Key aus einer Box
+zieht, kann Daten aller Boxen lesen und den gesamten Pool leeren. Geplanter
+Härtungspfad (noch nicht umgesetzt):
+
+- **Per-Gerät-Identität statt God-Key:** eigener Supabase-Auth-User (oder
+  Geräte-Token) je Box; RLS scoped jede Box strikt auf ihre `devices`-Row,
+  ihren Mix (nur lesen) und nur die ihr reservierten Gutscheine.
+- Reservierung/Reporting über `SECURITY DEFINER`-RPCs mit **Pro-Gerät-Limits**;
+  Token einzeln widerrufbar/rotierbar.
+- Härteste Stufe optional: **Edge-Function-Gateway** – die Box redet nie direkt
+  mit der DB, nur mit Functions, die das Token prüfen und intern mit Service-Role
+  arbeiten (zentrale Rate-Limits, einfache Revocation).
+
+Bis dahin gilt: Der geteilte Key ist ein **anon-Key mit möglichst wenig
+Rechten**, nicht der Service-Key, und die Härtung ist ein bekannter, geplanter
+Schritt vor dem breiteren Rollout.
+
 ---
 
 ## 4. Wunsch 1 – Deployment & Update vereinfachen
