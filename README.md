@@ -59,8 +59,14 @@ genau einer Box, das globale Bestandslimit hält auch offline.
 
 ## Web-Konsole
 
-Statische App unter [`web/`](web/) (Generator, Config-Editor, Bon-Editor mit
-Live-Vorschau). Siehe [`web/README.md`](web/README.md).
+Vue 3 + Vite + Tailwind App unter [`web/`](web/) (Generator, Config-Editor,
+Bon-Editor mit Live-Vorschau):
+
+```bash
+cd web && npm install && npm run dev     # oder: npm run build → dist/
+```
+
+Details in [`web/README.md`](web/README.md).
 
 ## Entwicklung
 

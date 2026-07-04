@@ -1,0 +1,60 @@
+export type RewardType = 'none' | 'static' | 'unique';
+
+export interface DeviceConfig {
+  printer?: { host?: string; port?: number; model?: string };
+  gpio?: { buttonPin?: number; debounceMs?: number; buzzerLedPin?: number };
+  neopixel?: { count?: number; gpio?: number; brightness?: number };
+  led?: { doneHoldMs?: number; errorHoldMs?: number; workingFallbackMs?: number; wledIp?: string };
+  dispense?: { cooldownMs?: number };
+}
+
+export interface DeviceRow {
+  id: string;
+  name: string | null;
+  location: string | null;
+  config: DeviceConfig;
+  desired_version: string | null;
+  app_version: string | null;
+  last_seen: string | null;
+  voucher_stock: Record<string, number> | null;
+}
+
+export interface TemplateRow {
+  id: number;
+  name: string;
+  template: ReceiptTemplate;
+}
+
+export interface DeviceTemplateRow {
+  id?: number;
+  device_id: string;
+  template_id: number;
+  template_name?: string;
+  enabled: boolean;
+  probability: number;
+  cooldown_sec: number;
+  data: Record<string, unknown>;
+  reward_type: RewardType;
+  voucher_category: string | null;
+  static_code: string | null;
+  daily_limit: number | null;
+  is_fallback: boolean;
+  _delete?: boolean;
+}
+
+// ── Bon-Layout ────────────────────────────────────────────────────────────
+export interface ReceiptElement {
+  type: string;
+  value?: string | boolean;
+  count?: number;
+  width?: number | string;
+  height?: number;
+  style?: string;
+  options?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface ReceiptTemplate {
+  encoding?: string;
+  elements: ReceiptElement[];
+}
