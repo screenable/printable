@@ -5,7 +5,7 @@ export interface DeviceConfig {
   gpio?: { buttonPin?: number; debounceMs?: number; buzzerLedPin?: number };
   neopixel?: { count?: number; gpio?: number; brightness?: number };
   led?: { doneHoldMs?: number; errorHoldMs?: number; workingFallbackMs?: number; wledIp?: string };
-  dispense?: { cooldownMs?: number };
+  dispense?: { cooldownMs?: number; redeemBaseUrl?: string };
 }
 
 export interface DeviceRow {
@@ -42,6 +42,9 @@ export interface DeviceTemplateRow {
   total_limit: number | null;
   is_fallback: boolean;
   _delete?: boolean;
+  // Transiente UI-Felder (nicht in der DB)
+  _newCodes?: string;
+  _codesMsg?: string;
 }
 
 // ── Bon-Layout ────────────────────────────────────────────────────────────
@@ -52,6 +55,8 @@ export interface ReceiptElement {
   width?: number | string;
   height?: number;
   style?: string;
+  input?: string;
+  symbology?: string;
   options?: Record<string, unknown>;
   [key: string]: unknown;
 }

@@ -48,8 +48,9 @@ web/
 │  └─ views/
 │     ├─ DevicesView.vue    # Dashboard + Verbindung
 │     ├─ GeneratorView.vue  # Neue Box + Install-Befehl
-│     ├─ DeviceView.vue     # Config, Template-Mix, Gutschein-Pool
-│     └─ BonEditorView.vue  # Bon-Editor mit Live-Vorschau
+│     ├─ DeviceView.vue     # Config + Preise als Karten (Status, Limits,
+│     │                     #   Code-Verwaltung je App-Code-Preis)
+│     └─ BonEditorView.vue  # Bon-Editor: Drag-&-Drop-Elemente + Live-Vorschau
 ├─ tailwind.config.js, postcss.config.js
 └─ vite.config.ts, tsconfig.json
 ```
