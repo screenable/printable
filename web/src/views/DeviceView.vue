@@ -80,6 +80,58 @@ function onRewardChange(r: DeviceTemplateRow) {
   }
 }
 
+// Zugriff auf frei definierbare Template-Daten (z.B. der Anzeige-Preis {{price}}).
+function dataVal(r: DeviceTemplateRow, key: string): string {
+  const v = r.data?.[key];
+  return v == null ? '' : String(v);
+}
+function setDataVal(r: DeviceTemplateRow, key: string, val: string): void {
+  r.data = { ...(r.data || {}), [key]: val };
+}
+
+// Nur noch nicht zugeordnete Layouts zur Auswahl anbieten.
+const availableToAdd = computed(() => {
+  const used = new Set(visibleMix.value.map(r => r.template_id));
+  return templates.value.filter(t => !used.has(t.id));
+});
+
+// ── Plausibilität ───────────────────────────────────────────────────────────
+function warningsFor(r: DeviceTemplateRow): string[] {
+  const w: string[] = [];
+  if (r.enabled === false) return w;
+  if ((Number(r.probability) || 0) <= 0) w.push('Gewicht 0 – dieser Preis wird nie ausgewählt.');
+  if (r.reward_type === 'unique') {
+    if (!r.voucher_category) {
+      w.push('Kategorie fehlt – App-Codes können nicht zugeordnet werden.');
+    } else {
+      const pool = poolFor(r.voucher_category);
+      if (pool.available + pool.claimed + pool.reserved === 0) {
+        w.push('Noch keine Codes im Pool für diese Kategorie.');
+      } else if (pool.available === 0) {
+        w.push('Pool leer – aktuell wird stattdessen der Trost-Preis gedruckt.');
+      }
+    }
+  }
+  if (r.reward_type === 'static' && !r.static_code) {
+    w.push('Kein Static-Code – stelle sicher, dass der Code/Barcode im Layout steckt.');
+  }
+  return w;
+}
+
+const globalWarnings = computed(() => {
+  const w: string[] = [];
+  const active = visibleMix.value.filter(r => r.enabled !== false);
+  if (!active.length) return w;
+  const fallbacks = active.filter(r => r.is_fallback);
+  if (fallbacks.length === 0) {
+    w.push('Kein aktiver Trost-/Fallback-Preis: Läuft ein Pool leer, kann die Box nichts drucken.');
+  } else if (fallbacks.length > 1) {
+    w.push('Mehrere Fallback-Preise markiert – die Box nutzt nur einen.');
+  }
+  if (totalWeight.value === 0) w.push('Alle Gewichte sind 0 – es wird nichts ausgewählt.');
+  return w;
+});
+
 // ── Laden ─────────────────────────────────────────────────────────────────
 async function loadDevice() {
   const c = getClient();
@@ -107,12 +159,12 @@ async function loadMix() {
   if (!c) return;
   const { data: tpls } = await c.from('templates').select('id, name').order('name');
   templates.value = (tpls as TemplateRow[]) || [];
-  addTplId.value = templates.value[0]?.id ?? null;
   const { data } = await c.from('device_templates').select('*, templates(name)').eq('device_id', props.id);
   mix.value = ((data as (DeviceTemplateRow & { templates?: { name: string } })[]) || []).map(d => ({
     ...d,
     template_name: d.templates?.name,
   }));
+  addTplId.value = availableToAdd.value[0]?.id ?? null;
 }
 
 async function loadStock() {
@@ -157,6 +209,7 @@ function addRow() {
     probability: 10, cooldown_sec: 0, data: {}, reward_type: 'none',
     voucher_category: null, static_code: null, daily_limit: null, total_limit: null, is_fallback: false,
   });
+  addTplId.value = availableToAdd.value[0]?.id ?? null;
 }
 
 async function saveMix() {
@@ -232,6 +285,14 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); });
       mit eigenem Vorrat.
     </p>
 
+    <div v-if="globalWarnings.length" class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+      <ul class="space-y-1">
+        <li v-for="wtext in globalWarnings" :key="wtext" class="text-sm text-amber-200 flex gap-2">
+          <span>⚠</span><span>{{ wtext }}</span>
+        </li>
+      </ul>
+    </div>
+
     <div class="space-y-3">
       <div
         v-for="(r, i) in visibleMix"
@@ -263,6 +324,11 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); });
             <input v-model.number="r.probability" type="number" class="input" />
           </div>
           <div>
+            <label class="label">Anzeige-Preis (Bon-Platzhalter price)</label>
+            <input :value="dataVal(r, 'price')" class="input" placeholder="z. B. 25%"
+              @input="setDataVal(r, 'price', ($event.target as HTMLInputElement).value)" />
+          </div>
+          <div>
             <label class="label">Reward-Typ</label>
             <select v-model="r.reward_type" class="input" @change="onRewardChange(r)">
               <option v-for="rw in REWARDS" :key="rw" :value="rw">{{ REWARD_LABEL[rw] }}</option>
@@ -277,6 +343,13 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); });
             <input v-model.number="r.daily_limit" type="number" class="input" placeholder="∞" />
           </div>
         </div>
+
+        <!-- Plausibilität je Preis -->
+        <ul v-if="warningsFor(r).length" class="mt-3 space-y-1">
+          <li v-for="wtext in warningsFor(r)" :key="wtext" class="text-xs text-amber-300 flex gap-1.5">
+            <span>⚠</span><span>{{ wtext }}</span>
+          </li>
+        </ul>
 
         <!-- Trost -->
         <label v-if="r.reward_type === 'none'" class="flex items-center gap-2 mt-3 text-sm text-slate-300">
@@ -330,10 +403,16 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); });
     </div>
 
     <div class="flex items-center gap-3 mt-4 flex-wrap">
-      <select v-model.number="addTplId" class="input w-auto">
-        <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
-      </select>
-      <button class="btn" @click="addRow">+ Preis hinzufügen</button>
+      <template v-if="availableToAdd.length">
+        <select v-model.number="addTplId" class="input w-auto">
+          <option v-for="t in availableToAdd" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+        <button class="btn" @click="addRow">+ Preis hinzufügen</button>
+      </template>
+      <RouterLink v-else-if="!templates.length" to="/bon-editor" class="text-sm text-brand-accent2">
+        Erst ein Bon-Layout im Bon-Editor anlegen →
+      </RouterLink>
+      <span v-else class="text-sm text-slate-500">Alle Layouts zugeordnet.</span>
       <button class="btn btn-primary" @click="saveMix">Preise speichern</button>
       <span class="text-sm text-slate-400">{{ mixMsg }}</span>
     </div>

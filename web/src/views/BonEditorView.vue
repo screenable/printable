@@ -138,6 +138,27 @@ async function save(asNew = false) {
   if (!msg.value.startsWith('Fehler')) loadList();
 }
 
+async function del() {
+  const c = getClient();
+  if (!c || !selectedId.value) return;
+  // Plausibilität: wird das Layout von Preisen genutzt? (FK cascade würde sie mitlöschen)
+  const { count } = await c
+    .from('device_templates')
+    .select('*', { count: 'exact', head: true })
+    .eq('template_id', selectedId.value);
+  if (count && count > 0) {
+    msg.value = `Wird von ${count} Preis(en) verwendet – dort zuerst entfernen.`;
+    return;
+  }
+  if (!confirm(`Template "${name.value}" wirklich löschen?`)) return;
+  const { error } = await c.from('templates').delete().eq('id', selectedId.value);
+  if (error) { msg.value = 'Fehler: ' + error.message; return; }
+  selectedId.value = '';
+  onSelect();
+  msg.value = 'Gelöscht ✓';
+  loadList();
+}
+
 onMounted(() => { loadList(); draw(); });
 </script>
 
@@ -163,6 +184,7 @@ onMounted(() => { loadList(); draw(); });
     <div class="flex gap-2">
       <button class="btn btn-primary" @click="save(false)">Speichern</button>
       <button class="btn" @click="save(true)">Als neu</button>
+      <button v-if="selectedId" class="btn btn-ghost text-slate-400" @click="del">Löschen</button>
     </div>
     <span class="text-sm text-slate-400 w-full">{{ msg }}</span>
   </section>

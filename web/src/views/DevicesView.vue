@@ -29,6 +29,15 @@ function stockLabel(stock: Record<string, number> | null): string {
   return entries.length ? entries.map(([k, v]) => `${k}:${v}`).join('  ') : '—';
 }
 
+async function del(d: DeviceRow) {
+  const c = getClient();
+  if (!c) return;
+  if (!confirm(`Box "${d.id}" wirklich löschen? Die Preise dieser Box werden mitgelöscht.`)) return;
+  const { error } = await c.from('devices').delete().eq('id', d.id);
+  if (error) { status.value = 'Fehler: ' + error.message; return; }
+  load();
+}
+
 async function load() {
   const c = getClient();
   if (!c) {
@@ -103,9 +112,12 @@ onMounted(load);
             </td>
             <td class="td text-slate-400">{{ stockLabel(d.voucher_stock) }}</td>
             <td class="td">
-              <RouterLink :to="`/device/${encodeURIComponent(d.id)}`">
-                <button class="btn btn-ghost">Konfigurieren</button>
-              </RouterLink>
+              <div class="flex gap-2">
+                <RouterLink :to="`/device/${encodeURIComponent(d.id)}`">
+                  <button class="btn btn-ghost">Konfigurieren</button>
+                </RouterLink>
+                <button class="btn btn-ghost text-slate-400" title="Box löschen" @click="del(d)">✕</button>
+              </div>
             </td>
           </tr>
         </tbody>
