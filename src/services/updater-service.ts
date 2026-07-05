@@ -47,6 +47,14 @@ export class UpdaterService {
   checkOnce(): void {
     const desired = this.getDesiredVersion();
     if (!desired) return;
+
+    // Sicherheit: desired_version kommt aus Supabase und fließt in git-Kommandos.
+    // Nur strikte Versions-/Tag-Namen zulassen (verhindert Command-Injection).
+    if (!/^v?\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(desired)) {
+      this.log.error({ desired }, 'Ungültige desired_version – Update abgebrochen');
+      return;
+    }
+
     const current = getCurrentVersion();
     if (compareVersions(desired, current) === 0) return;
 
@@ -54,25 +62,38 @@ export class UpdaterService {
     const previousCommit = this.safeExec('git rev-parse HEAD');
     try {
       const tag = /^v/.test(desired) ? desired : `v${desired}`;
-      execSync('git fetch --tags', { stdio: 'inherit' });
-      execSync(`git checkout ${tag}`, { stdio: 'inherit' });
-      execSync('npm ci', { stdio: 'inherit' });
-      execSync('npm run build', { stdio: 'inherit' });
+      this.run('git fetch --tags --prune');
+      this.run(`git checkout ${tag}`);
+      this.buildCurrentCheckout();
       this.log.warn({ tag }, 'Update applied – exiting for restart by systemd');
       process.exit(0);
     } catch (err) {
       this.log.error({ err }, 'Update failed – rolling back');
       if (previousCommit) {
         try {
-          execSync(`git checkout ${previousCommit}`, { stdio: 'inherit' });
-          execSync('npm ci', { stdio: 'inherit' });
-          execSync('npm run build', { stdio: 'inherit' });
+          this.run(`git checkout ${previousCommit}`);
+          this.buildCurrentCheckout();
           this.log.warn('Rollback complete');
         } catch (rollbackErr) {
           this.log.error({ rollbackErr }, 'Rollback failed – manual intervention required');
         }
       }
     }
+  }
+
+  /**
+   * Installiert Abhängigkeiten und baut den aktuellen Checkout.
+   * WICHTIG: `--include=dev`, weil der Service NODE_ENV=production setzt und
+   * `npm ci` sonst TypeScript (devDependency) weglässt und der Build scheitert.
+   */
+  private buildCurrentCheckout(): void {
+    this.run('npm ci --include=dev');
+    this.run('npm run build');
+  }
+
+  private run(cmd: string): void {
+    // 20 min Timeout: canvas & Co. bauen auf dem Pi nativ und dauern.
+    execSync(cmd, { stdio: 'inherit', timeout: 20 * 60_000 });
   }
 
   private safeExec(cmd: string): string | null {

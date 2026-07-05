@@ -8,10 +8,19 @@ import { type FilledTemplate, FilledTemplateSchema } from './types/template.vali
 import type { LocalJob } from './types/dispense.types';
 
 const POLL_INTERVAL_MS = 200;
+const PRINTER_RETRY_MS = 3000;
+const CONNECT_TIMEOUT_MS = 5000;
+
+type PrintResult = 'done' | 'error' | 'unavailable';
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
+  ]);
+}
 
 export async function startPrintWorker(server: FastifyInstance) {
-  let printer: NetworkReceiptPrinter | null = null;
-
   const printerTarget = () => {
     const { host, port } = configService.get().printer;
     return { host, port };
@@ -25,10 +34,26 @@ export async function startPrintWorker(server: FastifyInstance) {
     return canvas;
   }
 
-  const renderAndPrint = async (job: LocalJob) => {
+  async function safeDisconnect(p: NetworkReceiptPrinter): Promise<void> {
+    try {
+      await p.disconnect();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const renderAndPrint = async (job: LocalJob): Promise<PrintResult> => {
     const { host, port } = printerTarget();
-    printer = new NetworkReceiptPrinter({ host, port });
-    await printer.connect();
+    const printer = new NetworkReceiptPrinter({ host, port });
+
+    try {
+      await withTimeout(printer.connect(), CONNECT_TIMEOUT_MS, 'printer connect');
+    } catch (err) {
+      // Drucker nicht erreichbar -> Job bleibt pending, später mit Backoff erneut.
+      server.log.warn({ err, host, port }, 'Drucker nicht erreichbar – erneuter Versuch später');
+      await safeDisconnect(printer);
+      return 'unavailable';
+    }
 
     const model = configService.get().printer.model;
     const bon_data = new ReceiptPrinterEncoder({
@@ -127,37 +152,38 @@ export async function startPrintWorker(server: FastifyInstance) {
         }
       }
 
-      try {
-        bus.emit('print.start');
-        const commands = bon_data.encode();
-        await printer.print(commands);
-        jobStore.setStatus(job.id, 'done');
-        bus.emit('print.done');
-        await printer.disconnect();
-      } catch (err) {
-        bus.emit('print.error');
-        console.error('Fehler beim Drucken über NetworkReceiptPrinter:', err);
-        jobStore.setStatus(job.id, 'error', String(err));
-      }
+      bus.emit('print.start');
+      const commands = bon_data.encode();
+      await printer.print(commands);
+      jobStore.setStatus(job.id, 'done');
+      bus.emit('print.done');
+      return 'done';
     } catch (error) {
       bus.emit('print.error');
-      console.error('Fehler beim Rendern des Templates:', error);
+      console.error('Fehler beim Drucken/Rendern:', error);
       jobStore.setStatus(job.id, 'error', String(error));
+      return 'error';
+    } finally {
+      await safeDisconnect(printer);
     }
   };
 
   async function loop() {
     while (true) {
+      let wait = POLL_INTERVAL_MS;
       try {
         const job = jobStore.nextPending();
         if (job) {
           server.log.info({ jobId: job.id }, 'Processing local print job');
-          await renderAndPrint(job);
+          const result = await renderAndPrint(job);
+          // Drucker offline -> Job bleibt pending, mit Backoff erneut versuchen.
+          if (result === 'unavailable') wait = PRINTER_RETRY_MS;
         }
       } catch (e) {
         console.error('Fehler im Print-Loop:', e);
+        wait = PRINTER_RETRY_MS;
       }
-      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+      await new Promise(r => setTimeout(r, wait));
     }
   }
 
