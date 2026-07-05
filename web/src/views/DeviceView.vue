@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router';
 import { getClient } from '../lib/supabase';
 import { renderReceipt } from '../lib/receipt';
 import UsageChart from '../components/UsageChart.vue';
+import HeatmapChart from '../components/HeatmapChart.vue';
 import type {
   DeviceEventRow,
   DeviceRow,
@@ -261,8 +262,16 @@ async function loadHistory() {
   jobs.value = (data as PrintJobRow[]) || [];
 }
 
-// Nutzung nach Tagesstunde (Stoßzeiten)
+// Nutzung: Umschalter Stunde / Tag + Heatmap
+const usageMode = ref<'hour' | 'day'>('hour');
+
+// Stunde
 const hourly = ref<number[]>(new Array(24).fill(0));
+const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => `${h}–${h + 1} Uhr`);
+const HOUR_TICKS = [
+  { i: 0, text: '0' }, { i: 4, text: '4' }, { i: 8, text: '8' },
+  { i: 12, text: '12' }, { i: 16, text: '16' }, { i: 20, text: '20' }, { i: 23, text: '24' },
+];
 async function loadHourly() {
   const c = getClient();
   if (!c) return;
@@ -275,9 +284,70 @@ async function loadHourly() {
   hourly.value = arr;
 }
 
+// Tag (Kalendertage im Zeitraum, Lücken mit 0 gefüllt)
+const dayValues = ref<number[]>([]);
+const dayLabels = ref<string[]>([]);
+function dayList(): string[] {
+  const out: string[] = [];
+  const d = new Date(range.value.from + 'T00:00:00');
+  const end = new Date(range.value.to + 'T00:00:00');
+  while (d <= end && out.length < 400) {
+    out.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+async function loadDaily() {
+  const c = getClient();
+  if (!c) return;
+  const { fromIso, toIso } = rangeBounds();
+  const { data } = await c.rpc('dispense_by_day', { p_device_id: props.id, p_from: fromIso, p_to: toIso });
+  const map: Record<string, number> = {};
+  for (const r of (data as { day: string; count: number | string }[]) || []) map[r.day] = Number(r.count) || 0;
+  const days = dayList();
+  dayValues.value = days.map(dt => map[dt] || 0);
+  dayLabels.value = days.map(dt =>
+    new Date(dt + 'T00:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }),
+  );
+}
+const dayTicks = computed(() => {
+  const n = dayLabels.value.length;
+  if (!n) return [];
+  const step = Math.max(1, Math.ceil(n / 7));
+  const ticks: { i: number; text: string }[] = [];
+  for (let i = 0; i < n; i += step) {
+    ticks.push({ i, text: dayLabels.value[i].replace(/^\w+\.?,?\s*/, '') }); // nur Datum
+  }
+  return ticks;
+});
+
+// Aktive Chart-Daten je Modus
+const chartValues = computed(() => (usageMode.value === 'hour' ? hourly.value : dayValues.value));
+const chartLabels = computed(() => (usageMode.value === 'hour' ? HOUR_LABELS : dayLabels.value));
+const chartTicks = computed(() => (usageMode.value === 'hour' ? HOUR_TICKS : dayTicks.value));
+const chartPeakLabel = computed(() => (usageMode.value === 'hour' ? 'Stoßzeit' : 'Spitzentag'));
+
+// Heatmap Wochentag (Mo..So) × Stunde
+const heatMatrix = ref<number[][]>(Array.from({ length: 7 }, () => new Array(24).fill(0)));
+async function loadHeatmap() {
+  const c = getClient();
+  if (!c) return;
+  const { fromIso, toIso } = rangeBounds();
+  const { data } = await c.rpc('dispense_by_weekday_hour', { p_device_id: props.id, p_from: fromIso, p_to: toIso });
+  const m = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  for (const r of (data as { dow: number; hour: number; count: number | string }[]) || []) {
+    // isodow 1..7 (Mo..So) -> Zeile 0..6
+    const d = (Number(r.dow) - 1) % 7;
+    if (d >= 0 && d < 7 && r.hour >= 0 && r.hour < 24) m[d][r.hour] = Number(r.count) || 0;
+  }
+  heatMatrix.value = m;
+}
+
 function loadReport() {
   loadStats();
   loadHourly();
+  loadDaily();
+  loadHeatmap();
   loadEvents();
   loadHistory();
 }
@@ -606,10 +676,32 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
       <button class="btn btn-primary" @click="loadReport">Laden</button>
     </div>
 
-    <!-- Stoßzeiten: Nutzung nach Tagesstunde -->
-    <h3 class="text-xs uppercase tracking-wide text-slate-500 mb-2">Nutzung nach Uhrzeit</h3>
+    <!-- Nutzung: Liniendiagramm mit Umschalter Stunde/Tag -->
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-xs uppercase tracking-wide text-slate-500">
+        Nutzung nach {{ usageMode === 'hour' ? 'Uhrzeit' : 'Tag' }}
+      </h3>
+      <div class="flex rounded-lg border border-brand-border overflow-hidden text-xs">
+        <button
+          class="px-3 py-1"
+          :class="usageMode === 'hour' ? 'bg-brand-accent text-[#1a1400]' : 'text-slate-300'"
+          @click="usageMode = 'hour'"
+        >Stunde</button>
+        <button
+          class="px-3 py-1"
+          :class="usageMode === 'day' ? 'bg-brand-accent text-[#1a1400]' : 'text-slate-300'"
+          @click="usageMode = 'day'"
+        >Tag</button>
+      </div>
+    </div>
     <div class="mb-6">
-      <UsageChart :counts="hourly" />
+      <UsageChart :values="chartValues" :point-labels="chartLabels" :ticks="chartTicks" :peak-label="chartPeakLabel" />
+    </div>
+
+    <!-- Heatmap Wochentag × Stunde -->
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 mb-2">Wochentag × Uhrzeit</h3>
+    <div class="mb-6">
+      <HeatmapChart :matrix="heatMatrix" />
     </div>
 
     <!-- Statistik: was & wie viel gebuzzert, wie viel noch übrig -->
