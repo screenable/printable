@@ -1,9 +1,12 @@
 services:
   printable:
-    # Fertiges Image aus der Registry (per Tag aktualisieren) …
+    # Privates Image aus GHCR. Auf dem Pi vorher einmalig anmelden:
+    #   echo <GITHUB_PAT_mit_read:packages> | docker login ghcr.io -u <github-user> --password-stdin
+    # Danach: docker compose pull && docker compose up -d
     image: ghcr.io/screenable/printable:latest
-    # … oder lokal auf dem Pi bauen: `docker compose build`
-    build: .
+    # Nur für lokales Bauen mit vorhandenem Quellcode einkommentieren
+    # (auf dem Pi liegt kein Quellcode – dort wird das Image gezogen):
+    # build: .
     container_name: printable
     restart: always
 
