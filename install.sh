@@ -8,11 +8,11 @@
 # Idempotent: erneutes Ausführen aktualisiert Code + Abhängigkeiten und startet
 # den Dienst neu.
 #
-# Wichtig (GPIO): Die Buzzer-/Button-Ansteuerung nutzt die pigpio-C-Bibliothek,
-# die für den DMA-/Timing-Zugriff auf /dev/mem ROOT-Rechte braucht. Der Dienst
-# läuft daher als root – nur so werden die Pins zuverlässig ausgelesen. Der
-# pigpiod-Daemon wird NICHT gestartet, da das npm-pigpio die C-Lib selbst
-# initialisiert und beide sonst um die Hardware konkurrieren.
+# GPIO (Button/Buzzer) läuft über @iiot2k/gpiox = Linux GPIO-Character-Device V2,
+# das auf dem Raspberry Pi 5 (RP1) funktioniert. Der Dienst läuft als root, damit
+# der Zugriff auf /dev/gpiochip* und die Audio-Hardware ohne Gruppen-/udev-
+# Sonderfälle garantiert ist. (Auf Pi ≤4 kann optional GPIO_BACKEND=pigpio
+# genutzt werden – das benötigt zusätzlich das apt-Paket 'pigpio'.)
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/printable}"
@@ -33,27 +33,28 @@ fi
 : "${SUPABASE_KEY:?SUPABASE_KEY muss gesetzt sein}"
 
 # ── Plattform-Hinweise ───────────────────────────────────────────────────────
+# GPIO läuft standardmäßig über @iiot2k/gpiox (Linux GPIO-Character-Device V2)
+# und funktioniert damit auf dem Raspberry Pi 5 (RP1) genauso wie auf Pi 3/4.
+# Voraussetzung: 64-bit Raspberry Pi OS (Bookworm arm64).
 MODEL="$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)"
 log "Erkanntes Board: ${MODEL:-unbekannt}"
-if echo "$MODEL" | grep -q "Raspberry Pi 5"; then
-  warn "Raspberry Pi 5 erkannt: Die pigpio-C-Bibliothek unterstützt den Pi-5-GPIO NICHT."
-  warn "Für Pi 5 müsste die GPIO-Anbindung auf lgpio/libgpiod umgestellt werden."
-  warn "Installation läuft weiter, aber Buzzer/Button funktionieren auf Pi 5 nicht."
+if [[ "$(uname -m)" != "aarch64" ]]; then
+  warn "Kein 64-bit-System (uname -m = $(uname -m)). gpiox benötigt 64-bit Raspberry Pi OS."
 fi
 
 # ── System-Abhängigkeiten ────────────────────────────────────────────────────
 log "System-Abhängigkeiten installieren"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-# git + Build-Tools; pkg-config/Cairo/Pango für node-canvas; pigpio (C-Lib+Header
-# für den npm-Build) für GPIO; alsa-utils für den Buzzer-/Sound-Ausgang.
+# git + Build-Tools; pkg-config/Cairo/Pango für node-canvas; alsa-utils für den
+# Buzzer-/Sound-Ausgang. GPIO (gpiox) braucht KEIN apt-Paket – es nutzt das
+# Kernel-Character-Device direkt und bringt ein arm64-Prebuilt mit.
 apt-get install -y --no-install-recommends \
   git ca-certificates curl build-essential python3 pkg-config \
-  libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev \
-  pigpio alsa-utils
+  libcairo2-dev libpango1.0-dev libjpeg-dev librsvg2-dev libgif-dev \
+  alsa-utils
 
-# pigpiod-Daemon deaktivieren – er würde mit dem in-Prozess pigpio kollidieren.
-log "pigpiod-Daemon deaktivieren (Konflikt mit in-Prozess pigpio vermeiden)"
+# Falls von einem früheren Image aktiv: pigpiod stoppen (blockiert sonst GPIO).
 systemctl disable --now pigpiod 2>/dev/null || true
 
 # ── Node.js ──────────────────────────────────────────────────────────────────

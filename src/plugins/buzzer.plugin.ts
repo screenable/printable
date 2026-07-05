@@ -1,79 +1,59 @@
 import fp from 'fastify-plugin';
-import { Gpio, Gpio as PigpioGpio } from 'pigpio';
 import { bus } from '../event-bus';
 import { configService } from '../app-context';
-
-type GpioLike = {
-  on: (event: 'interrupt', cb: (level: 0 | 1) => void) => void;
-  disableInterrupt: () => void;
-};
+import { createGpioDriver } from '../lib/gpio';
 
 export default fp(async fastify => {
-  const gpioCfg = configService.get().gpio;
-  fastify.log.info(`🐷 Initialisiere pigpio für GPIO${gpioCfg.buttonPin}`);
+  const gpio = configService.get().gpio;
 
-  const realGpio = new PigpioGpio(gpioCfg.buttonPin, {
-    mode: PigpioGpio.INPUT,
-    pullUpDown: Gpio.PUD_UP,
-    alert: true,
-  });
+  const driver = createGpioDriver(gpio.backend, fastify.log);
+  if (!driver) {
+    fastify.log.warn('GPIO deaktiviert – Button/Buzzer nicht verfügbar.');
+    return;
+  }
+  fastify.log.info(
+    { backend: driver.name, buttonPin: gpio.buttonPin, buzzerLedPin: gpio.buzzerLedPin, pressedLevel: gpio.pressedLevel },
+    'GPIO initialisiert',
+  );
 
-  const led = new PigpioGpio(gpioCfg.buzzerLedPin, { mode: PigpioGpio.OUTPUT });
-  led.digitalWrite(1);
+  // Buzzer/LED beim Start kurz auslösen (Lebenszeichen).
+  try {
+    driver.pulse(gpio.buzzerLedPin, 2000);
+  } catch (err) {
+    fastify.log.error({ err }, 'Buzzer/LED-Init fehlgeschlagen');
+  }
+
+  // Ersten Pegelwechsel direkt nach dem Init ignorieren (Störimpuls beim Setup).
+  let initializing = true;
   setTimeout(() => {
-    led.digitalWrite(0);
-  }, 2000);
+    initializing = false;
+  }, 1000);
 
-  // optional: software-debounce (in ms)
-  const debounceMs = gpioCfg.debounceMs ?? 10;
-  realGpio.glitchFilter(debounceMs * 1000); // pigpio erwartet µs
-
-  const gpio: GpioLike = {
-    on: (event, cb) => {
-      if (event === 'interrupt') {
-        realGpio.on('alert', (level: number) => cb(level as 0 | 1));
+  try {
+    driver.watchButton(gpio.buttonPin, gpio.debounceMs, level => {
+      if (initializing) {
+        initializing = false;
+        fastify.log.debug({ level }, 'Initialer GPIO-Flankenwechsel ignoriert');
+        return;
       }
-    },
-    disableInterrupt: () => {
-      realGpio.disableAlert();
-      realGpio.removeAllListeners('alert');
-      realGpio.digitalRead(); // forces final state read
-    },
-  };
-
-  // Flag to ignore spurious interrupts during initialization
-  let isInitializing = true;
-
-  // Fallback timeout in ms to reset initialization flag
-  const INIT_TIMEOUT_MS = 1000;
-
-  // Fallback: reset the initialization flag after a short delay even if no interrupt occurs
-  setTimeout(() => {
-    if (isInitializing) {
-      fastify.log.debug(`Initialization period ended for GPIO${gpioCfg.buttonPin} (no interrupt occurred)`);
-      isInitializing = false;
-    }
-  }, INIT_TIMEOUT_MS);
-
-  gpio.on('interrupt', value => {
-    // Ignore the first interrupt event that may occur during GPIO initialization
-    if (isInitializing) {
-      fastify.log.debug(`Ignoring initial GPIO interrupt during initialization (pin ${gpioCfg.buttonPin}, value ${value})`);
-      isInitializing = false;
-      return;
-    }
-
-    if (value === 1) {
-      fastify.log.info(`Button pressed on pin ${gpioCfg.buttonPin}`);
-      bus.emit('button.press', { pin: gpioCfg.buttonPin });
-    } else {
-      fastify.log.info(`Button released on pin ${gpioCfg.buttonPin}`);
-      bus.emit('button.release', { pin: gpioCfg.buttonPin });
-    }
-  });
+      // pressedLevel bestimmt, welcher Pegel „gedrückt" bedeutet (Wiring-abhängig).
+      if (level === gpio.pressedLevel) {
+        fastify.log.info(`Button pressed (GPIO${gpio.buttonPin})`);
+        bus.emit('button.press', { pin: gpio.buttonPin });
+      } else {
+        bus.emit('button.release', { pin: gpio.buttonPin });
+      }
+    });
+  } catch (err) {
+    fastify.log.error({ err }, 'Button-Überwachung fehlgeschlagen – GPIO deaktiviert');
+  }
 
   fastify.addHook('onClose', (_instance, done) => {
-    gpio.disableInterrupt();
+    try {
+      driver.close();
+    } catch {
+      /* ignore */
+    }
     done();
   });
 });

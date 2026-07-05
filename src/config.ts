@@ -81,6 +81,8 @@ export const CONFIG = {
       buttonPin: num(GPIO_PIN, 17),
       debounceMs: num(DEBOUNCE_MS, 10),
       buzzerLedPin: GPIO_BUZZER_LED_PIN ? Number(GPIO_BUZZER_LED_PIN) : 5,
+      backend: process.env.GPIO_BACKEND ?? 'gpiox',
+      pressedLevel: (process.env.GPIO_PRESSED_LEVEL === '1' ? 1 : 0) as 0 | 1,
     },
     neopixel: {
       count: num(NEOPIXEL_COUNT, 0),

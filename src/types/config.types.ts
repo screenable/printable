@@ -11,6 +11,10 @@ export interface DeviceConfig {
     buttonPin: number;
     debounceMs: number;
     buzzerLedPin: number;
+    /** GPIO-Bibliothek: 'gpiox' (Pi 5), 'pigpio' (Pi ≤4) oder 'none'. */
+    backend: string;
+    /** Pegel, der als „gedrückt" gilt (0 = gegen GND bei Pull-up, 1 = active-high). */
+    pressedLevel: 0 | 1;
   };
   neopixel: {
     count: number;

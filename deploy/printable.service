@@ -10,8 +10,9 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-# pigpio braucht /dev/mem (DMA/Timing) -> root, sonst werden die GPIO-Pins
-# (Button/Buzzer) nicht ausgelesen.
+# root: garantierter Zugriff auf /dev/gpiochip* (gpiox) und Audio ohne
+# Gruppen-/udev-Sonderfälle. (Ließe sich später auf einen User in der Gruppe
+# 'gpio' + 'audio' einschränken.)
 User=root
 WorkingDirectory=__APP_DIR__
 EnvironmentFile=__APP_DIR__/.env

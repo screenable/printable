@@ -36,16 +36,20 @@ curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.s
          SUPABASE_KEY="ey..." bash
 ```
 
-Getestet auf **Raspberry Pi OS Bookworm**. Der Installer richtet Node,
-Abhängigkeiten und einen `systemd`-Service für den **Kioskbetrieb** ein:
-`Restart=always` + `StartLimitIntervalSec=0` (unendliche Neustarts), Boot ohne
-Internet möglich. Der Dienst läuft **als root**, weil die pigpio-C-Bibliothek
-für den GPIO-Zugriff (Button/Buzzer) `/dev/mem` braucht; der konkurrierende
-`pigpiod`-Daemon wird deaktiviert. Updates steuert das Backend über
+Getestet auf **Raspberry Pi OS Bookworm (64-bit)**, inkl. **Raspberry Pi 5**.
+Der Installer richtet Node, Abhängigkeiten und einen `systemd`-Service für den
+**Kioskbetrieb** ein: `Restart=always` + `StartLimitIntervalSec=0` (unendliche
+Neustarts), Boot ohne Internet möglich. Updates steuert das Backend über
 `devices.desired_version` (kontrolliertes Self-Update mit Rollback).
 
-> Raspberry Pi 5 wird von pigpio nicht unterstützt (anderer GPIO-Chip); dort
-> müsste die Anbindung auf lgpio/libgpiod umgestellt werden.
+GPIO (Button/Buzzer) läuft über **`@iiot2k/gpiox`** = Linux GPIO-Character-Device
+V2, das auf dem Pi-5-GPIO (RP1) funktioniert. Der Dienst läuft als root für
+garantierten Zugriff auf `/dev/gpiochip*` und Audio. Auf Pi ≤4 kann optional
+`GPIO_BACKEND=pigpio` gesetzt werden (benötigt das apt-Paket `pigpio`).
+
+> Wiring-Hinweis: `GPIO_PRESSED_LEVEL` legt fest, welcher Pegel „gedrückt"
+> bedeutet (Default `0` = Taster gegen GND bei internem Pull-up). Bei
+> active-high-Verdrahtung auf `1` setzen.
 
 ```bash
 systemctl status printable      # Status
