@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { getClient } from '../lib/supabase';
-import type { DeviceRow, DeviceTemplateRow, RewardType, TemplateRow } from '../lib/types';
+import { renderReceipt } from '../lib/receipt';
+import type { DeviceRow, DeviceTemplateRow, PrintJobRow, ReceiptElement, RewardType, TemplateRow } from '../lib/types';
 
 const props = defineProps<{ id: string }>();
 
@@ -96,6 +97,17 @@ const availableToAdd = computed(() => {
 });
 
 // ── Plausibilität ───────────────────────────────────────────────────────────
+// Enthält das Layout überhaupt eine Code-Darstellung (Platzhalter oder Barcode/Bild)?
+function layoutHasCodeRef(r: DeviceTemplateRow): boolean {
+  const els = r.template_layout?.elements;
+  if (!els) return true; // Layout unbekannt -> nicht warnen
+  return els.some((el: ReceiptElement) => {
+    if (el.type === 'barcode' || el.type === 'image') return true;
+    const v = typeof el.value === 'string' ? el.value : '';
+    return v.includes('{{code}}') || v.includes('{{redeem_url}}');
+  });
+}
+
 function warningsFor(r: DeviceTemplateRow): string[] {
   const w: string[] = [];
   if (r.enabled === false) return w;
@@ -115,7 +127,59 @@ function warningsFor(r: DeviceTemplateRow): string[] {
   if (r.reward_type === 'static' && !r.static_code) {
     w.push('Kein Static-Code – stelle sicher, dass der Code/Barcode im Layout steckt.');
   }
+  if (r.reward_type !== 'none' && !layoutHasCodeRef(r)) {
+    w.push('Layout enthält keinen Code/Barcode/QR – der Bon zeigt keinen Gutschein.');
+  }
   return w;
+}
+
+// ── Vorschau (gemeinsames Modal) ────────────────────────────────────────────
+const previewOpen = ref(false);
+const previewTitle = ref('');
+const previewCanvas = ref<HTMLCanvasElement | null>(null);
+let previewEls: ReceiptElement[] = [];
+let previewSample: Record<string, string> = {};
+
+async function openPreview(title: string, elements: ReceiptElement[], sample: Record<string, string>) {
+  previewTitle.value = title;
+  previewEls = elements;
+  previewSample = sample;
+  previewOpen.value = true;
+  await nextTick();
+  if (previewCanvas.value) renderReceipt(previewCanvas.value, previewEls, previewSample);
+}
+
+function previewPrize(r: DeviceTemplateRow) {
+  const els = r.template_layout?.elements;
+  if (!els) return;
+  const code = 'ABCD-1234';
+  const base = cfg.value.redeemBaseUrl || 'https://app.screenable.io/r/';
+  openPreview(r.template_name || 'Preis', els, {
+    price: dataVal(r, 'price') || '25%',
+    code: r.reward_type === 'static' && r.static_code ? r.static_code : code,
+    redeem_url: base + code,
+  });
+}
+
+function previewJob(j: PrintJobRow) {
+  if (j.filled_template?.elements) openPreview(j.data?.template || 'Bon', j.filled_template.elements, {});
+}
+
+// ── Druck-Historie ──────────────────────────────────────────────────────────
+const jobs = ref<PrintJobRow[]>([]);
+async function loadHistory() {
+  const c = getClient();
+  if (!c) return;
+  const { data } = await c
+    .from('print_jobs')
+    .select('id, data, filled_template, status, created_at')
+    .eq('data->>device_id', props.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  jobs.value = (data as PrintJobRow[]) || [];
+}
+function fmtTime(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleString('de-DE') : '';
 }
 
 const globalWarnings = computed(() => {
@@ -159,10 +223,11 @@ async function loadMix() {
   if (!c) return;
   const { data: tpls } = await c.from('templates').select('id, name').order('name');
   templates.value = (tpls as TemplateRow[]) || [];
-  const { data } = await c.from('device_templates').select('*, templates(name)').eq('device_id', props.id);
-  mix.value = ((data as (DeviceTemplateRow & { templates?: { name: string } })[]) || []).map(d => ({
+  const { data } = await c.from('device_templates').select('*, templates(name, template)').eq('device_id', props.id);
+  mix.value = ((data as (DeviceTemplateRow & { templates?: { name: string; template?: unknown } })[]) || []).map(d => ({
     ...d,
     template_name: d.templates?.name,
+    template_layout: d.templates?.template as DeviceTemplateRow['template_layout'],
   }));
   addTplId.value = availableToAdd.value[0]?.id ?? null;
 }
@@ -243,7 +308,7 @@ async function addCodesForRow(r: DeviceTemplateRow) {
   if (!error) { r._newCodes = ''; loadStock(); }
 }
 
-onMounted(() => { loadDevice(); loadMix(); loadStock(); });
+onMounted(() => { loadDevice(); loadMix(); loadStock(); loadHistory(); });
 </script>
 
 <template>
@@ -306,6 +371,7 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); });
             <span :class="statusFor(r).cls">{{ statusFor(r).text }}</span>
           </div>
           <div class="flex items-center gap-2">
+            <button v-if="r.template_layout" class="btn btn-ghost px-3 py-1 text-xs" @click="previewPrize(r)">Vorschau</button>
             <button
               class="btn btn-ghost px-3 py-1 text-xs"
               :class="r.enabled === false ? 'text-emerald-400' : 'text-amber-300'"
@@ -417,4 +483,44 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); });
       <span class="text-sm text-slate-400">{{ mixMsg }}</span>
     </div>
   </section>
+
+  <!-- Druck-Historie -->
+  <section class="panel mt-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm uppercase tracking-wide text-slate-400">Druck-Historie</h2>
+      <button class="btn btn-ghost px-3 py-1 text-xs" @click="loadHistory">Aktualisieren</button>
+    </div>
+    <p v-if="!jobs.length" class="text-slate-400 text-sm">Noch keine Drucke von dieser Box.</p>
+    <div v-else class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr><th class="th">Zeit</th><th class="th">Preis</th><th class="th">Code</th><th class="th">Status</th><th class="th"></th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="j in jobs" :key="j.id">
+            <td class="td whitespace-nowrap tabular-nums text-slate-400">{{ fmtTime(j.created_at) }}</td>
+            <td class="td">{{ j.data?.template || '—' }}</td>
+            <td class="td font-mono text-xs">{{ j.data?.code || '—' }}</td>
+            <td class="td">{{ j.status }}</td>
+            <td class="td">
+              <button v-if="j.filled_template" class="btn btn-ghost px-2 py-0.5 text-xs" @click="previewJob(j)">Vorschau</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Vorschau-Modal -->
+  <div v-if="previewOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="previewOpen = false">
+    <div class="bg-brand-panel border border-brand-border rounded-xl p-4 max-h-[90vh] overflow-auto">
+      <div class="flex items-center justify-between mb-3 gap-6">
+        <span class="font-semibold">{{ previewTitle }}</span>
+        <button class="btn btn-ghost px-2 py-1" @click="previewOpen = false">✕</button>
+      </div>
+      <div class="bg-slate-700/40 p-4 rounded-lg flex justify-center">
+        <canvas ref="previewCanvas" class="shadow-2xl rounded-sm max-w-full"></canvas>
+      </div>
+    </div>
+  </div>
 </template>

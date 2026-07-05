@@ -43,8 +43,17 @@ export interface DeviceTemplateRow {
   is_fallback: boolean;
   _delete?: boolean;
   // Transiente UI-Felder (nicht in der DB)
+  template_layout?: ReceiptTemplate;
   _newCodes?: string;
   _codesMsg?: string;
+}
+
+export interface PrintJobRow {
+  id: string;
+  data: { code?: string; template?: string; device_id?: string; [k: string]: unknown } | null;
+  filled_template: ReceiptTemplate | null;
+  status: string;
+  created_at: string | null;
 }
 
 // ── Bon-Layout ────────────────────────────────────────────────────────────
