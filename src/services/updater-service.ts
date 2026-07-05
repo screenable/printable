@@ -9,6 +9,7 @@
 // npm ci / build fehl, wird auf den vorherigen Stand zurückgerollt, damit ein
 // kaputtes Release die Box nicht lahmlegt.
 import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import type { FastifyBaseLogger } from 'fastify';
 import { CONFIG } from '../config';
 import { logEvent } from '../app-context';
@@ -33,6 +34,12 @@ export class UpdaterService {
   }
 
   start(intervalMs = 5 * 60_000): void {
+    // Im Container ist das Dateisystem immutable – git-Self-Update ergäbe keinen
+    // Sinn. Updates laufen dort über Image-Tags (docker pull + restart).
+    if (existsSync('/.dockerenv')) {
+      this.log.info('Läuft im Container – git-Self-Update deaktiviert (Update via Image-Tag).');
+      return;
+    }
     if (!this.enabled) {
       this.log.info('Updater disabled (set AUTO_UPDATE_APPLY=true to enable)');
       return;

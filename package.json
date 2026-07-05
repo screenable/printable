@@ -7,10 +7,11 @@
     "dev": "nodemon -e ts,json,env --exec ts-node --files -r dotenv/config src/index.ts",
     "dev-rasp": " ts-node src/index.ts",
     "build": "tsc -p tsconfig.json",
+    "postbuild": "cp -r src/assets dist/",
     "test": "LOG_LEVEL=error node -r ts-node/register --test src/**/*.test.ts",
     "lint": "biome lint src",
-    "docker:build": "docker build --build-arg PORT=3000 -t code-companion-node-ts-template .",
-    "docker:run": "docker run -p  code-companion-node-ts-template"
+    "docker:build": "docker build -t printable .",
+    "docker:run": "docker compose up -d"
   },
   "keywords": [],
   "author": "Niels Van den broeck",

@@ -1,0 +1,15 @@
+.git
+node_modules
+dist
+data
+web
+docs
+deploy
+install.sh
+.github
+.env
+*.log
+**/*.test.ts
+Dockerfile
+docker-compose.yml
+.dockerignore

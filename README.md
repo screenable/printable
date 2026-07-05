@@ -56,6 +56,42 @@ systemctl status printable      # Status
 journalctl -u printable -f       # Logs
 ```
 
+## Alternativ: Docker (Raspberry Pi 5)
+
+Container-Deploy für den Pi 5 (arm64). Das Image wird in CI gebaut
+(`.github/workflows/docker.yml` → `ghcr.io/screenable/printable`), auf dem Pi
+läuft nur noch `docker`.
+
+`.env` auf dem Pi anlegen:
+
+```env
+DEVICE_ID=box-edeka-nord-01
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_KEY=ey...
+```
+
+Starten:
+
+```bash
+docker compose pull   # Image aus GHCR (oder: docker compose build)
+docker compose up -d
+docker compose logs -f
+```
+
+Wichtig (siehe `docker-compose.yml`):
+
+- **GPIO (Pi 5):** `privileged: true` gibt dem Container Zugriff auf
+  `/dev/gpiochip*` (RP1) und Audio – die Pins werden wie in der Box-Config
+  gelesen. Feiner statt privileged: die auskommentierte `devices:`/`group_add:`
+  -Variante (Chip-Nummern mit `ls /dev/gpiochip*` prüfen).
+- **WLED & Drucker:** `network_mode: host` → der Container erreicht WLED
+  (`http://<WLED_IP>/json`) und den Drucker (`:9100`) direkt per LAN-IP.
+- **Persistenz:** Der Offline-Store liegt im Volume `printable-data` (`/data`) –
+  Gutscheine/Jobs/Ereignisse überstehen Neustart & Update.
+- **Updates:** über Image-Tags (`docker compose pull && up -d`), nicht über den
+  in-Container-git-Updater (der ist im Container automatisch deaktiviert). Für
+  automatische Updates optional [Watchtower](https://containrrr.dev/watchtower/).
+
 ## Supabase einrichten
 
 ```bash
