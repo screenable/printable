@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { getClient } from '../lib/supabase';
 import { renderReceipt } from '../lib/receipt';
+import UsageChart from '../components/UsageChart.vue';
 import type {
   DeviceEventRow,
   DeviceRow,
@@ -260,8 +261,23 @@ async function loadHistory() {
   jobs.value = (data as PrintJobRow[]) || [];
 }
 
+// Nutzung nach Tagesstunde (Stoßzeiten)
+const hourly = ref<number[]>(new Array(24).fill(0));
+async function loadHourly() {
+  const c = getClient();
+  if (!c) return;
+  const { fromIso, toIso } = rangeBounds();
+  const { data } = await c.rpc('dispense_by_hour', { p_device_id: props.id, p_from: fromIso, p_to: toIso });
+  const arr = new Array(24).fill(0);
+  for (const r of (data as { hour: number; count: number | string }[]) || []) {
+    if (r.hour >= 0 && r.hour < 24) arr[r.hour] = Number(r.count) || 0;
+  }
+  hourly.value = arr;
+}
+
 function loadReport() {
   loadStats();
+  loadHourly();
   loadEvents();
   loadHistory();
 }
@@ -588,6 +604,12 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
       <div><label class="label">Von</label><input v-model="range.from" type="date" class="input w-auto" /></div>
       <div><label class="label">Bis</label><input v-model="range.to" type="date" class="input w-auto" /></div>
       <button class="btn btn-primary" @click="loadReport">Laden</button>
+    </div>
+
+    <!-- Stoßzeiten: Nutzung nach Tagesstunde -->
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 mb-2">Nutzung nach Uhrzeit</h3>
+    <div class="mb-6">
+      <UsageChart :counts="hourly" />
     </div>
 
     <!-- Statistik: was & wie viel gebuzzert, wie viel noch übrig -->
