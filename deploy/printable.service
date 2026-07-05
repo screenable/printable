@@ -1,21 +1,31 @@
 [Unit]
 Description=Printable Box (POS receipt dispenser)
-After=network-online.target pigpiod.service
-Wants=network-online.target
+Documentation=https://github.com/screenable/printable
+# Offline-first: nach dem Netzwerk starten, aber NICHT darauf warten – die Box
+# muss auch ohne Internet booten und drucken.
+After=network.target
+Wants=network.target
+# Kiosk: systemd soll den Neustart NIE aufgeben (kein Start-Rate-Limit).
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=__USER__
+# pigpio braucht /dev/mem (DMA/Timing) -> root, sonst werden die GPIO-Pins
+# (Button/Buzzer) nicht ausgelesen.
+User=root
 WorkingDirectory=__APP_DIR__
-ExecStart=/usr/bin/node dist/index.js
 EnvironmentFile=__APP_DIR__/.env
-# Neustart bei Absturz UND nach einem Self-Update (Prozess beendet sich mit 0)
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/index.js
+# Immer neu starten – bei Absturz UND nach einem Self-Update (exit 0).
 Restart=always
 RestartSec=3
-# Zugriff auf GPIO/Audio benötigt ggf. diese Gruppen
-SupplementaryGroups=gpio audio
+# Sauberes Beenden; danach hartes Kill, falls der Prozess hängt.
+TimeoutStopSec=15
+KillMode=mixed
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=printable
 
 [Install]
 WantedBy=multi-user.target

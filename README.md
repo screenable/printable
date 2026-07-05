@@ -36,9 +36,16 @@ curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.s
          SUPABASE_KEY="ey..." bash
 ```
 
-Der Installer richtet Node, Abhängigkeiten, `pigpiod` und einen
-`systemd`-Service (`Restart=always`) ein. Updates steuert das Backend über
+Getestet auf **Raspberry Pi OS Bookworm**. Der Installer richtet Node,
+Abhängigkeiten und einen `systemd`-Service für den **Kioskbetrieb** ein:
+`Restart=always` + `StartLimitIntervalSec=0` (unendliche Neustarts), Boot ohne
+Internet möglich. Der Dienst läuft **als root**, weil die pigpio-C-Bibliothek
+für den GPIO-Zugriff (Button/Buzzer) `/dev/mem` braucht; der konkurrierende
+`pigpiod`-Daemon wird deaktiviert. Updates steuert das Backend über
 `devices.desired_version` (kontrolliertes Self-Update mit Rollback).
+
+> Raspberry Pi 5 wird von pigpio nicht unterstützt (anderer GPIO-Chip); dort
+> müsste die Anbindung auf lgpio/libgpiod umgestellt werden.
 
 ```bash
 systemctl status printable      # Status
