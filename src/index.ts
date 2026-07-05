@@ -7,7 +7,9 @@ import ledPlugin from './plugins/led.plugin';
 import { startPrintWorker } from './print-worker';
 import { SyncService } from './services/sync-service';
 import { UpdaterService } from './services/updater-service';
-import { assertConfig } from './config';
+import { assertConfig, CONFIG } from './config';
+import { logEvent, configService } from './app-context';
+import { getCurrentVersion } from './helpers/auto-updater';
 import server from './server';
 
 const port = Number(process.env.PORT) || 3000;
@@ -30,6 +32,12 @@ async function main() {
   await server.register(dispensePlugin);
   await server.register(ledPlugin);
   await startPrintWorker(server);
+
+  logEvent('info', 'startup', 'Box gestartet', {
+    version: getCurrentVersion(),
+    device: CONFIG.DEVICE_ID,
+    gpioBackend: configService.get().gpio.backend,
+  });
 
   // 2) Periodischen Hintergrund-Sync + kontrollierten Self-Updater starten.
   sync.start();

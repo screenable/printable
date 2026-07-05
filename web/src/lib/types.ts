@@ -56,6 +56,21 @@ export interface PrintJobRow {
   created_at: string | null;
 }
 
+export interface DispenseStatRow {
+  template: string;
+  status: string;
+  count: number | string;
+}
+
+export interface DeviceEventRow {
+  id: number;
+  ts: string;
+  level: string;
+  type: string;
+  message: string | null;
+  data: Record<string, unknown> | null;
+}
+
 // ── Bon-Layout ────────────────────────────────────────────────────────────
 export interface ReceiptElement {
   type: string;

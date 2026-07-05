@@ -18,6 +18,7 @@ import type { PartialDeviceConfig } from '../types/config.types';
 import { supabase } from '../lib/supabase-client';
 import {
   configService,
+  eventStore,
   jobStore,
   selector,
   templateRegistry,
@@ -216,6 +217,28 @@ export class SyncService {
         }
       } catch (err) {
         this.log.warn({ err }, 'sync: pushOutbox (jobs) failed');
+      }
+    }
+
+    // 3) Ereignis-Log hochladen.
+    const events = eventStore.unsynced();
+    if (events.length > 0) {
+      try {
+        const rows = events.map(e => ({
+          device_id: CONFIG.DEVICE_ID,
+          ts: e.ts,
+          level: e.level,
+          type: e.type,
+          message: e.message ?? null,
+          data: e.data ?? {},
+        }));
+        const { error } = await supabase.from('device_events').insert(rows);
+        if (!error) {
+          eventStore.markSyncedAndPrune(events.map(e => e.id));
+          this.log.info({ count: events.length }, 'sync: events uploaded');
+        }
+      } catch (err) {
+        this.log.warn({ err }, 'sync: pushOutbox (events) failed');
       }
     }
   }

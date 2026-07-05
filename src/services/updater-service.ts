@@ -11,6 +11,7 @@
 import { execSync } from 'node:child_process';
 import type { FastifyBaseLogger } from 'fastify';
 import { CONFIG } from '../config';
+import { logEvent } from '../app-context';
 import { compareVersions, getCurrentVersion } from '../helpers/auto-updater';
 
 export interface UpdaterDeps {
@@ -66,9 +67,14 @@ export class UpdaterService {
       this.run(`git checkout ${tag}`);
       this.buildCurrentCheckout();
       this.log.warn({ tag }, 'Update applied – exiting for restart by systemd');
+      logEvent('info', 'update_applied', `Update auf ${tag}`, { from: current, to: desired });
       process.exit(0);
     } catch (err) {
       this.log.error({ err }, 'Update failed – rolling back');
+      logEvent('error', 'update_failed', 'Update fehlgeschlagen – Rollback', {
+        desired,
+        error: String(err),
+      });
       if (previousCommit) {
         try {
           this.run(`git checkout ${previousCommit}`);

@@ -3,7 +3,16 @@ import { computed, nextTick, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { getClient } from '../lib/supabase';
 import { renderReceipt } from '../lib/receipt';
-import type { DeviceRow, DeviceTemplateRow, PrintJobRow, ReceiptElement, RewardType, TemplateRow } from '../lib/types';
+import type {
+  DeviceEventRow,
+  DeviceRow,
+  DeviceTemplateRow,
+  DispenseStatRow,
+  PrintJobRow,
+  ReceiptElement,
+  RewardType,
+  TemplateRow,
+} from '../lib/types';
 
 const props = defineProps<{ id: string }>();
 
@@ -165,21 +174,96 @@ function previewJob(j: PrintJobRow) {
   if (j.filled_template?.elements) openPreview(j.data?.template || 'Bon', j.filled_template.elements, {});
 }
 
-// ── Druck-Historie ──────────────────────────────────────────────────────────
+// ── Auswertung: Zeitraum, Statistik, Ereignisse, Historie ───────────────────
+function isoDay(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+const range = ref({ from: isoDay(-7), to: isoDay(0) });
+
+function rangeBounds(): { fromIso: string; toIso: string } {
+  const from = new Date(range.value.from + 'T00:00:00');
+  const to = new Date(range.value.to + 'T00:00:00');
+  to.setDate(to.getDate() + 1); // exklusive Obergrenze = Folgetag 00:00
+  return { fromIso: from.toISOString(), toIso: to.toISOString() };
+}
+function fmtTime(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleString('de-DE') : '';
+}
+
+interface StatAgg { template: string; done: number; error: number; total: number }
+const stats = ref<StatAgg[]>([]);
+const statsTotal = computed(() => stats.value.reduce((s, r) => s + r.total, 0));
+
+async function loadStats() {
+  const c = getClient();
+  if (!c) return;
+  const { fromIso, toIso } = rangeBounds();
+  const { data } = await c.rpc('dispense_stats', { p_device_id: props.id, p_from: fromIso, p_to: toIso });
+  const map: Record<string, StatAgg> = {};
+  for (const r of (data as DispenseStatRow[]) || []) {
+    const m = (map[r.template] ??= { template: r.template, done: 0, error: 0, total: 0 });
+    const n = Number(r.count) || 0;
+    if (r.status === 'done') m.done += n;
+    else if (r.status === 'error') m.error += n;
+    m.total += n;
+  }
+  stats.value = Object.values(map).sort((a, b) => b.total - a.total);
+}
+
+// Aktueller Rest-Bestand zu einem Template-Namen (aus dem Preis-Mix).
+function restForTemplate(name: string): string {
+  const r = visibleMix.value.find(x => x.template_name === name);
+  return r ? remainingFor(r) : '—';
+}
+
+// Ereignisse
+const events = ref<DeviceEventRow[]>([]);
+const eventLevel = ref('');
+const LEVEL_CLS: Record<string, string> = {
+  error: 'pill pill-warn text-red-300',
+  warn: 'pill pill-warn',
+  info: 'pill',
+};
+async function loadEvents() {
+  const c = getClient();
+  if (!c) return;
+  const { fromIso, toIso } = rangeBounds();
+  let q = c
+    .from('device_events')
+    .select('id, ts, level, type, message, data')
+    .eq('device_id', props.id)
+    .gte('ts', fromIso)
+    .lt('ts', toIso)
+    .order('ts', { ascending: false })
+    .limit(300);
+  if (eventLevel.value) q = q.eq('level', eventLevel.value);
+  const { data } = await q;
+  events.value = (data as DeviceEventRow[]) || [];
+}
+
+// Historie (Einzeldrucke im Zeitraum)
 const jobs = ref<PrintJobRow[]>([]);
 async function loadHistory() {
   const c = getClient();
   if (!c) return;
+  const { fromIso, toIso } = rangeBounds();
   const { data } = await c
     .from('print_jobs')
     .select('id, data, filled_template, status, created_at')
     .eq('data->>device_id', props.id)
+    .gte('created_at', fromIso)
+    .lt('created_at', toIso)
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(100);
   jobs.value = (data as PrintJobRow[]) || [];
 }
-function fmtTime(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString('de-DE') : '';
+
+function loadReport() {
+  loadStats();
+  loadEvents();
+  loadHistory();
 }
 
 const globalWarnings = computed(() => {
@@ -316,7 +400,7 @@ async function addCodesForRow(r: DeviceTemplateRow) {
   if (!error) { r._newCodes = ''; loadStock(); }
 }
 
-onMounted(() => { loadDevice(); loadMix(); loadStock(); loadHistory(); });
+onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
 </script>
 
 <template>
@@ -497,31 +581,87 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadHistory(); });
     </div>
   </section>
 
-  <!-- Druck-Historie -->
+  <!-- Auswertung -->
   <section class="panel mt-5">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm uppercase tracking-wide text-slate-400">Druck-Historie</h2>
-      <button class="btn btn-ghost px-3 py-1 text-xs" @click="loadHistory">Aktualisieren</button>
+    <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-3">Auswertung</h2>
+    <div class="flex items-end gap-3 flex-wrap mb-4">
+      <div><label class="label">Von</label><input v-model="range.from" type="date" class="input w-auto" /></div>
+      <div><label class="label">Bis</label><input v-model="range.to" type="date" class="input w-auto" /></div>
+      <button class="btn btn-primary" @click="loadReport">Laden</button>
     </div>
-    <p v-if="!jobs.length" class="text-slate-400 text-sm">Noch keine Drucke von dieser Box.</p>
-    <div v-else class="overflow-x-auto">
+
+    <!-- Statistik: was & wie viel gebuzzert, wie viel noch übrig -->
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 mb-2">
+      Ausgaben im Zeitraum · gesamt {{ statsTotal }}
+    </h3>
+    <div v-if="stats.length" class="overflow-x-auto mb-6">
       <table class="w-full">
         <thead>
-          <tr><th class="th">Zeit</th><th class="th">Preis</th><th class="th">Code</th><th class="th">Status</th><th class="th"></th></tr>
+          <tr><th class="th">Preis</th><th class="th">Gedruckt</th><th class="th">Fehler</th><th class="th">Rest jetzt</th></tr>
         </thead>
         <tbody>
-          <tr v-for="j in jobs" :key="j.id">
-            <td class="td whitespace-nowrap tabular-nums text-slate-400">{{ fmtTime(j.created_at) }}</td>
-            <td class="td">{{ j.data?.template || '—' }}</td>
-            <td class="td font-mono text-xs">{{ j.data?.code || '—' }}</td>
-            <td class="td">{{ j.status }}</td>
-            <td class="td">
-              <button v-if="j.filled_template" class="btn btn-ghost px-2 py-0.5 text-xs" @click="previewJob(j)">Vorschau</button>
-            </td>
+          <tr v-for="s in stats" :key="s.template">
+            <td class="td">{{ s.template }}</td>
+            <td class="td tabular-nums">{{ s.done }}</td>
+            <td class="td tabular-nums" :class="{ 'text-red-300': s.error > 0 }">{{ s.error }}</td>
+            <td class="td tabular-nums text-slate-400">{{ restForTemplate(s.template) }}</td>
           </tr>
         </tbody>
       </table>
     </div>
+    <p v-else class="text-slate-400 text-sm mb-6">Keine Ausgaben im Zeitraum.</p>
+
+    <!-- Ereignisse (Log) -->
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-xs uppercase tracking-wide text-slate-500">Ereignisse</h3>
+      <select v-model="eventLevel" class="input w-auto text-xs" @change="loadEvents">
+        <option value="">alle Level</option>
+        <option value="info">info</option>
+        <option value="warn">warn</option>
+        <option value="error">error</option>
+      </select>
+    </div>
+    <div v-if="events.length" class="overflow-x-auto mb-6">
+      <table class="w-full">
+        <thead>
+          <tr><th class="th">Zeit</th><th class="th">Level</th><th class="th">Typ</th><th class="th">Meldung</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="e in events" :key="e.id">
+            <td class="td whitespace-nowrap tabular-nums text-slate-400">{{ fmtTime(e.ts) }}</td>
+            <td class="td"><span :class="LEVEL_CLS[e.level] || 'pill'">{{ e.level }}</span></td>
+            <td class="td font-mono text-xs">{{ e.type }}</td>
+            <td class="td">{{ e.message }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p v-else class="text-slate-400 text-sm mb-6">Keine Ereignisse im Zeitraum.</p>
+
+    <!-- Einzeldrucke -->
+    <details>
+      <summary class="text-xs uppercase tracking-wide text-slate-500 cursor-pointer">
+        Einzeldrucke ({{ jobs.length }})
+      </summary>
+      <div v-if="jobs.length" class="overflow-x-auto mt-2">
+        <table class="w-full">
+          <thead>
+            <tr><th class="th">Zeit</th><th class="th">Preis</th><th class="th">Code</th><th class="th">Status</th><th class="th"></th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="j in jobs" :key="j.id">
+              <td class="td whitespace-nowrap tabular-nums text-slate-400">{{ fmtTime(j.created_at) }}</td>
+              <td class="td">{{ j.data?.template || '—' }}</td>
+              <td class="td font-mono text-xs">{{ j.data?.code || '—' }}</td>
+              <td class="td">{{ j.status }}</td>
+              <td class="td">
+                <button v-if="j.filled_template" class="btn btn-ghost px-2 py-0.5 text-xs" @click="previewJob(j)">Vorschau</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
   </section>
 
   <!-- Vorschau-Modal -->

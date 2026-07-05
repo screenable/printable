@@ -13,7 +13,7 @@
 import fp from 'fastify-plugin';
 import { bus } from '../event-bus';
 import { fillTemplate, type FillData } from '../helpers/template-filler';
-import { jobStore, selector, templateRegistry, voucherStore, configService } from '../app-context';
+import { jobStore, logEvent, selector, templateRegistry, voucherStore, configService } from '../app-context';
 import type { RuntimeTemplate } from '../types/dispense.types';
 
 export default fp(async fastify => {
@@ -67,6 +67,10 @@ export default fp(async fastify => {
         const fb = templateRegistry.fallback();
         if (fb) {
           fastify.log.info({ category: template.voucherCategory }, 'Pool empty - using fallback');
+          logEvent('warn', 'pool_empty', 'Pool leer – Trost-Preis gedruckt', {
+            category: template.voucherCategory,
+            prize: template.name,
+          });
           template = fb;
         }
       } else {

@@ -3,7 +3,7 @@ import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder';
 import NetworkReceiptPrinter from '@point-of-sale/network-receipt-printer';
 import { createCanvas, loadImage } from 'canvas';
 import { bus } from './event-bus';
-import { configService, jobStore } from './app-context';
+import { configService, jobStore, logEvent } from './app-context';
 import { type FilledTemplate, FilledTemplateSchema } from './types/template.validation';
 import type { LocalJob } from './types/dispense.types';
 
@@ -168,6 +168,8 @@ export async function startPrintWorker(server: FastifyInstance) {
     }
   };
 
+  let printerDown = false;
+
   async function loop() {
     while (true) {
       let wait = POLL_INTERVAL_MS;
@@ -176,8 +178,25 @@ export async function startPrintWorker(server: FastifyInstance) {
         if (job) {
           server.log.info({ jobId: job.id }, 'Processing local print job');
           const result = await renderAndPrint(job);
-          // Drucker offline -> Job bleibt pending, mit Backoff erneut versuchen.
-          if (result === 'unavailable') wait = PRINTER_RETRY_MS;
+          if (result === 'unavailable') {
+            // Drucker offline -> Job bleibt pending, mit Backoff erneut versuchen.
+            wait = PRINTER_RETRY_MS;
+            if (!printerDown) {
+              printerDown = true;
+              logEvent('warn', 'printer_unreachable', 'Drucker nicht erreichbar', printerTarget());
+            }
+          } else {
+            if (printerDown && result === 'done') {
+              printerDown = false;
+              logEvent('info', 'printer_recovered', 'Drucker wieder erreichbar');
+            }
+            if (result === 'error') {
+              logEvent('error', 'print_error', 'Druckfehler', {
+                jobId: job.id,
+                template: job.templateName,
+              });
+            }
+          }
         }
       } catch (e) {
         console.error('Fehler im Print-Loop:', e);
