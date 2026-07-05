@@ -7,8 +7,10 @@
 //
 // Jeder Schritt ist best-effort und in try/catch gekapselt: Ist die Box offline,
 // scheitert der Sync leise, der Druckbetrieb läuft aus dem lokalen Cache weiter.
+import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { CONFIG } from '../config';
+import { JsonStore } from '../lib/json-store';
 import { getCurrentVersion } from '../helpers/auto-updater';
 import { FilledTemplateSchema } from '../types/template.validation';
 import type { RuntimeTemplate } from '../types/dispense.types';
@@ -31,9 +33,12 @@ export class SyncService {
   private timer?: ReturnType<typeof setInterval>;
   /** Vom Backend gewünschte App-Version (für den Self-Updater). */
   desiredVersion?: string;
+  /** Zuletzt verarbeitete Neustart-Anforderung (persistiert gegen Loops). */
+  private reboot: JsonStore<{ lastHandled: string | null }>;
 
   constructor(deps: SyncServiceDeps) {
     this.log = deps.log;
+    this.reboot = new JsonStore(join(CONFIG.DATA_DIR, 'reboot.json'), { lastHandled: null });
   }
 
   /** Führt einen kompletten Sync-Zyklus aus. */
@@ -61,7 +66,7 @@ export class SyncService {
     try {
       const { data, error } = await supabase
         .from('devices')
-        .select('config, desired_version, dispensed')
+        .select('config, desired_version, dispensed, restart_requested_at')
         .eq('id', CONFIG.DEVICE_ID)
         .single();
       if (error) throw error;
@@ -70,10 +75,24 @@ export class SyncService {
         this.desiredVersion = data.desired_version ?? undefined;
         // Gesamt-Zähler vom Backend übernehmen (robust gegen Re-Image).
         if (data.dispensed) voucherStore.seedTotals(data.dispensed as Record<string, number>);
+        this.checkReboot(data.restart_requested_at ?? null);
       }
     } catch (err) {
       this.log.warn({ err }, 'sync: pullConfig failed (offline?) – using cached config');
     }
+  }
+
+  /**
+   * Fern-Neustart: Ist restart_requested_at neuer als der zuletzt verarbeitete
+   * Wert, merkt sich die Box den Zeitpunkt (persistent) und beendet sich –
+   * systemd startet den Dienst neu. Der persistierte Wert verhindert einen Loop.
+   */
+  private checkReboot(requestedAt: string | null): void {
+    if (!requestedAt) return;
+    if (this.reboot.get().lastHandled === requestedAt) return;
+    this.log.warn({ requestedAt }, 'Fern-Neustart angefordert – Dienst wird neu gestartet');
+    this.reboot.set({ lastHandled: requestedAt });
+    process.exit(0);
   }
 
   async pullTemplates(): Promise<void> {

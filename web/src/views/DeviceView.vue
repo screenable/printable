@@ -266,6 +266,14 @@ async function saveConfig() {
   if (!error) loadDevice();
 }
 
+async function requestReboot() {
+  const c = getClient();
+  if (!c) return;
+  if (!confirm('Diese Box aus der Ferne neu starten? Sie übernimmt den Neustart beim nächsten Sync (~30 s).')) return;
+  const { error } = await c.from('devices').update({ restart_requested_at: new Date().toISOString() }).eq('id', props.id);
+  cfgMsg.value = error ? 'Fehler: ' + error.message : 'Neustart angefordert – Box startet in ~30 s ✓';
+}
+
 function addRow() {
   const tpl = templates.value.find(t => t.id === addTplId.value);
   if (!tpl) return;
@@ -334,10 +342,15 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadHistory(); });
       <summary class="text-xs text-slate-400 cursor-pointer">Vollständige config (JSON)</summary>
       <textarea v-model="cfg.json" class="input font-mono text-xs min-h-[140px] mt-2" spellcheck="false"></textarea>
     </details>
-    <div class="flex items-center gap-3 mt-3">
+    <div class="flex items-center gap-3 mt-3 flex-wrap">
       <button class="btn btn-primary" @click="saveConfig">Konfiguration speichern</button>
+      <button class="btn btn-ghost" title="Box aus der Ferne neu starten (ohne SSH)" @click="requestReboot">Box neu starten</button>
       <span class="text-sm text-slate-400">{{ cfgMsg }}</span>
     </div>
+    <p class="text-xs text-slate-500 mt-2">
+      Hinweis: Drucker-IP und Cooldown wirken live (~30 s). Änderungen an
+      GPIO-Pins/LED greifen erst nach „Box neu starten".
+    </p>
   </section>
 
   <!-- Preise -->
