@@ -45,7 +45,7 @@ async function create() {
   }
   msg.value = 'Angelegt ✓';
   installCmd.value =
-    `curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.sh \\\n` +
+    `curl -fsSL https://raw.githubusercontent.com/screenable/printable/master/install.sh \\\n` +
     `  | sudo DEVICE_ID="${form.value.id.trim()}" \\\n` +
     `         SUPABASE_URL="${settings.url}" \\\n` +
     `         SUPABASE_KEY="<ANON_ODER_DEVICE_KEY>" bash`;

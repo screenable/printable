@@ -192,7 +192,7 @@ Ziel: Eine neue Box in <10 Minuten aufsetzen, Updates automatisch/kontrolliert.
 Ein `install.sh` im Repo, aufrufbar per:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/screenable/printable/master/install.sh | bash
 ```
 
 Das Skript:

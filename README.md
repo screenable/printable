@@ -30,7 +30,7 @@ Knopfdruck (`dispense.plugin`): Template lokal wählen (Gewichte/Cooldowns/Limit
 Ein Befehl (aus dem Generator der Web-Konsole kopieren):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/screenable/printable/master/install.sh \
   | sudo DEVICE_ID="box-edeka-nord-01" \
          SUPABASE_URL="https://xxxx.supabase.co" \
          SUPABASE_KEY="ey..." bash
