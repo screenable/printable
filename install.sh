@@ -2,7 +2,7 @@
 #
 # Printable Box – Installer für den Kioskbetrieb auf Raspberry Pi OS Bookworm.
 #
-#   curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.sh \
+#   curl -fsSL https://raw.githubusercontent.com/screenable/printable/master/install.sh \
 #     | sudo DEVICE_ID="box-01" SUPABASE_URL="https://x.supabase.co" SUPABASE_KEY="ey..." bash
 #
 # Idempotent: erneutes Ausführen aktualisiert Code + Abhängigkeiten und startet
@@ -17,7 +17,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/printable}"
 REPO_URL="${REPO_URL:-https://github.com/screenable/printable.git}"
-BRANCH="${BRANCH:-main}"
+BRANCH="${BRANCH:-master}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 
 log() { echo -e "\033[1;33m==>\033[0m $*"; }
