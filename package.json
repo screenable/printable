@@ -7,27 +7,25 @@
     "dev": "nodemon -e ts,json,env --exec ts-node --files -r dotenv/config src/index.ts",
     "dev-rasp": " ts-node src/index.ts",
     "build": "tsc -p tsconfig.json",
+    "postbuild": "cp -r src/assets dist/",
     "test": "LOG_LEVEL=error node -r ts-node/register --test src/**/*.test.ts",
     "lint": "biome lint src",
-    "docker:build": "docker build --build-arg PORT=3000 -t code-companion-node-ts-template .",
-    "docker:run": "docker run -p  code-companion-node-ts-template"
+    "docker:build": "docker build -t printable .",
+    "docker:run": "docker compose up -d"
   },
   "keywords": [],
   "author": "Niels Van den broeck",
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@types/escpos": "^2.5.5",
     "@types/node": "^24.7.2",
     "@types/play-sound": "^1.1.2",
     "@types/supertest": "^6.0.3",
-    "dotenv": "^16.5.0",
     "node-test-junit-reporter": "^2.0.1",
     "nodemon": "^3.1.10",
     "supertest": "^7.1.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3",
-    "zod": "^4.0.14"
+    "typescript": "^5.8.3"
   },
   "dependencies": {
     "@point-of-sale/network-receipt-printer": "^2.0.1",
@@ -36,16 +34,15 @@
     "@fastify/autoload": "^6.3.0",
     "@supabase/supabase-js": "^2.53.0",
     "axios": "^1.12.2",
-    "emit-keypress": "^1.0.1",
-    "escpos": "^3.0.0-alpha.6",
-    "escpos-network": "^3.0.0-alpha.5",
+    "dotenv": "^16.5.0",
     "eventemitter2": "^6.4.9",
     "fastify": "^5.2.0",
     "fastify-plugin": "^5.0.1",
-    "install": "^0.13.0",
-    "onoff": "^6.0.3",
-    "pigpio": "^3.3.1",
-    "piixel": "^1.2.2",
-    "play-sound": "^1.1.6"
+    "play-sound": "^1.1.6",
+    "zod": "^4.0.14"
+  },
+  "optionalDependencies": {
+    "@iiot2k/gpiox": "^3.0.6",
+    "pigpio": "^3.3.1"
   }
 }

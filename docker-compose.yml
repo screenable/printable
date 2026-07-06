@@ -1,0 +1,42 @@
+services:
+  printable:
+    # Öffentliches Image aus GHCR (docker compose pull && up -d).
+    image: ghcr.io/screenable/printable:latest
+    # Nur für lokales Bauen mit vorhandenem Quellcode einkommentieren
+    # (auf dem Pi liegt kein Quellcode – dort wird das Image gezogen):
+    # build: .
+    container_name: printable
+    restart: always
+
+    # LAN-Zugriff direkt per IP auf Drucker (192.168.x.x:9100) UND WLED
+    # (http://<WLED_IP>/json). Host-Netzwerk vermeidet NAT-Sonderfälle.
+    network_mode: host
+
+    # Raspberry Pi 5: GPIO läuft über das Character-Device (/dev/gpiochip*).
+    # privileged gibt dem Container zuverlässig Zugriff auf alle GPIO-Chips und
+    # die Audio-Hardware – die einfachste, robuste Variante für eine dedizierte
+    # Box. (Feiner: unten die device-/group-Variante statt privileged nutzen.)
+    privileged: true
+
+    # ─ Alternative statt "privileged: true" (feiner, aber Chip-Nummern müssen
+    #   zum Pi passen; auf dem Gerät mit `ls /dev/gpiochip*` prüfen) ─
+    # devices:
+    #   - /dev/gpiochip0
+    #   - /dev/gpiochip4
+    #   - /dev/snd
+    # group_add:
+    #   - audio
+
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      # Updates laufen über Image-Tags, nicht über den in-Container-git-Updater:
+      AUTO_UPDATE_APPLY: "false"
+
+    volumes:
+      # Offline-Store persistent halten (übersteht Neustart/Update).
+      - printable-data:/data
+
+volumes:
+  printable-data:

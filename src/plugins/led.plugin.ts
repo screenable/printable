@@ -1,7 +1,7 @@
 import fp from 'fastify-plugin';
 import axios from 'axios';
 import { bus } from '../event-bus';
-import { CONFIG } from '../config';
+import { configService } from '../app-context';
 
 type LedState = 'ready' | 'working' | 'done' | 'error';
 type IntervalId = ReturnType<typeof setInterval>;
@@ -94,7 +94,8 @@ class WLEDClient {
 }
 
 export default fp(async fastify => {
-  const wled = new WLEDClient(CONFIG.WLED_IP);
+  const ledCfg = configService.get().led;
+  const wled = new WLEDClient(ledCfg.wledIp);
 
   let state: LedState = 'ready';
   let progress = 0; // 0..1 - stored for potential future progress visualization
@@ -128,7 +129,7 @@ export default fp(async fastify => {
         timeouts.push(
           setTimeout(async () => {
             await applyState('ready');
-          }, CONFIG.LED_DONE_HOLD_MS),
+          }, ledCfg.doneHoldMs),
         );
         break;
       }
@@ -138,7 +139,7 @@ export default fp(async fastify => {
         timeouts.push(
           setTimeout(async () => {
             await applyState('ready');
-          }, CONFIG.LED_ERROR_HOLD_MS),
+          }, ledCfg.errorHoldMs),
         );
         break;
       }
@@ -154,7 +155,7 @@ export default fp(async fastify => {
     timeouts.push(
       setTimeout(async () => {
         if (state === 'working') await applyState('error');
-      }, CONFIG.LED_WORKING_FALLBACK_MS),
+      }, ledCfg.workingFallbackMs),
     );
   });
 
@@ -168,7 +169,7 @@ export default fp(async fastify => {
       timeouts.push(
         setTimeout(async () => {
           if (state === 'working') await applyState('error');
-        }, CONFIG.LED_WORKING_FALLBACK_MS),
+        }, ledCfg.workingFallbackMs),
       );
     }
   });

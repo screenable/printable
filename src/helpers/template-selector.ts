@@ -9,27 +9,46 @@ export class TemplateSelector {
 
   constructor(private templates: WebhookTemplate[]) {}
 
+  /** Ersetzt die Template-Liste (z.B. nach einem Sync aus Supabase). */
+  setTemplates(templates: WebhookTemplate[]): void {
+    this.templates = templates;
+  }
+
+  /** Aktuelle Template-Liste. */
+  getTemplates(): WebhookTemplate[] {
+    return this.templates;
+  }
+
   /**
-   * Selects a template based on weighted probabilities and cooldown constraints
+   * Selects a template based on weighted probabilities and constraints.
+   *
+   * Eligibility filter (KONZEPT.md 5.3):
+   *  1. not on cooldown
+   *  2. (optional) `available(template)` returns true — used to enforce
+   *     local stock (Bestandslimit) and daily limits (Tempolimit)
+   *
+   * When a tier drops out, its weight vanishes and the remaining weights are
+   * renormalised automatically, so the probabilities self-adjust.
+   *
+   * @param opts.available Optional predicate to gate a template on live state
+   *   (e.g. remaining voucher stock > 0, daily limit not reached).
    * @returns Selected template or null if no eligible templates
    */
-  selectTemplate(): WebhookTemplate | null {
+  selectTemplate(opts?: { available?: (template: WebhookTemplate) => boolean }): WebhookTemplate | null {
     const now = Date.now();
-    
-    // Filter templates that are not on cooldown
-    const eligibleTemplates = this.templates.filter(template => {
-      if (template.cooldownSeconds === 0) {
-        return true; // No cooldown
-      }
 
+    const notOnCooldown = (template: WebhookTemplate): boolean => {
+      if (template.cooldownSeconds === 0) return true;
       const lastUsed = this.usageTracker[template.name];
-      if (!lastUsed) {
-        return true; // Never used
-      }
+      if (!lastUsed) return true;
+      return now - lastUsed >= template.cooldownSeconds * 1000;
+    };
 
-      const cooldownMs = template.cooldownSeconds * 1000;
-      const timeSinceLastUse = now - lastUsed;
-      return timeSinceLastUse >= cooldownMs;
+    // Filter templates that are not on cooldown and pass the availability gate.
+    const eligibleTemplates = this.templates.filter(template => {
+      if (!notOnCooldown(template)) return false;
+      if (opts?.available && !opts.available(template)) return false;
+      return true;
     });
 
     if (eligibleTemplates.length === 0) {

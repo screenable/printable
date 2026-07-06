@@ -1,0 +1,32 @@
+[Unit]
+Description=Printable Box (POS receipt dispenser)
+Documentation=https://github.com/screenable/printable
+# Offline-first: nach dem Netzwerk starten, aber NICHT darauf warten – die Box
+# muss auch ohne Internet booten und drucken.
+After=network.target
+Wants=network.target
+# Kiosk: systemd soll den Neustart NIE aufgeben (kein Start-Rate-Limit).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# root: garantierter Zugriff auf /dev/gpiochip* (gpiox) und Audio ohne
+# Gruppen-/udev-Sonderfälle. (Ließe sich später auf einen User in der Gruppe
+# 'gpio' + 'audio' einschränken.)
+User=root
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/index.js
+# Immer neu starten – bei Absturz UND nach einem Self-Update (exit 0).
+Restart=always
+RestartSec=3
+# Sauberes Beenden; danach hartes Kill, falls der Prozess hängt.
+TimeoutStopSec=15
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=printable
+
+[Install]
+WantedBy=multi-user.target

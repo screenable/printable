@@ -1,150 +1,138 @@
-# Code Companion Node.js TypeScript Template
+# Printable
 
-This repository provides a template for building Fastify-based Node.js applications using TypeScript. It includes a pre-configured setup for development, testing, linting, and deployment.
+Offline-first POS-/Gutschein-Drucker für den Raspberry Pi mit Epson-Bondrucker
+(TM-m30iii), Hardware-Buzzer und LEDs. Konfiguration und Bon-Layouts kommen aus
+Supabase und werden über eine Web-Konsole gepflegt.
 
-## Features
+> Konzept & Architektur im Detail: [`docs/KONZEPT.md`](docs/KONZEPT.md)
 
-- **Fastify Framework**: A fast and low-overhead web framework for Node.js.
-- **TypeScript**: Strongly typed JavaScript for better developer experience.
-- **Environment Configuration**: `.env` support via `dotenv`.
-- **Testing**: Pre-configured with `node:test` and `supertest`.
-- **Linting**: Code linting and formatting using Biome.
-- **Docker Support**: Dockerfile for containerized deployment.
-- **GitHub Actions**: CI/CD pipeline for building, linting, and testing.
-- **Dependabot**: Automated dependency updates.
+## Architektur in einem Satz
 
-## Getting Started
+Supabase ist die **Single Source of Truth** (Config, Templates, Gutschein-Pool),
+der Pi ist ein **offline-first Client**, der pro Knopfdruck komplett lokal
+auswählt, füllt und druckt und nur im Hintergrund mit Supabase synchronisiert.
 
-### Prerequisites
+```
+Web-Konsole ─▶ Supabase ─▶  Pi (Offline-Cache)
+ (web/)         devices        config-service   → Drucker / LED / Buzzer
+                templates      template-registry
+                device_templates voucher-store  → lokaler Gutschein-Pool
+                voucher_pool   job-store        → lokale Druck-Queue
+                print_jobs  ◀─ sync-service (Outbox + Heartbeat)
+```
 
-- [Node.js](https://nodejs.org/) (version `22.15.0` recommended, see `.nvmrc`)
-- [Docker](https://www.docker.com/) (optional, for containerized deployment)
+Knopfdruck (`dispense.plugin`): Template lokal wählen (Gewichte/Cooldowns/Limits)
+→ Reward `static`=Code aus Template / `unique`=Code aus Pool (leer/Limit → Trost)
+→ lokal füllen → in die lokale Druck-Queue. **Kein Netz nötig.**
 
-### Installation
+## Raspberry Pi einrichten
 
-1. Use this repository as a template:
-
-   - Click the **"Use this template"** button on the [GitHub repository page](https://github.com/CodeCompanionBE/code-companion-node-ts-template).
-   - Create a new repository based on this template.
-
-2. Clone your newly created repository:
-
-   ```bash
-   git clone ...
-   cd your-repo-name
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-4. Copy the example environment file and configure it:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-### Development
-
-Start the development server with hot-reloading:
+Ein Befehl (aus dem Generator der Web-Konsole kopieren):
 
 ```bash
-npm run dev
+curl -fsSL https://raw.githubusercontent.com/screenable/printable/main/install.sh \
+  | sudo DEVICE_ID="box-edeka-nord-01" \
+         SUPABASE_URL="https://xxxx.supabase.co" \
+         SUPABASE_KEY="ey..." bash
 ```
 
-The server will run on `http://localhost:3000` by default.
+Getestet auf **Raspberry Pi OS Bookworm (64-bit)**, inkl. **Raspberry Pi 5**.
+Der Installer richtet Node, Abhängigkeiten und einen `systemd`-Service für den
+**Kioskbetrieb** ein: `Restart=always` + `StartLimitIntervalSec=0` (unendliche
+Neustarts), Boot ohne Internet möglich. Updates steuert das Backend über
+`devices.desired_version` (kontrolliertes Self-Update mit Rollback).
 
-### Testing
+GPIO (Button/Buzzer) läuft über **`@iiot2k/gpiox`** = Linux GPIO-Character-Device
+V2, das auf dem Pi-5-GPIO (RP1) funktioniert. Der Dienst läuft als root für
+garantierten Zugriff auf `/dev/gpiochip*` und Audio. Auf Pi ≤4 kann optional
+`GPIO_BACKEND=pigpio` gesetzt werden (benötigt das apt-Paket `pigpio`).
 
-Run the test suite:
+> Wiring-Hinweis: `GPIO_PRESSED_LEVEL` legt fest, welcher Pegel „gedrückt"
+> bedeutet (Default `0` = Taster gegen GND bei internem Pull-up). Bei
+> active-high-Verdrahtung auf `1` setzen.
 
 ```bash
-npm test
+systemctl status printable      # Status
+journalctl -u printable -f       # Logs
 ```
 
-### Linting
+## Alternativ: Docker (Raspberry Pi 5)
 
-Lint the codebase:
+Container-Deploy für den Pi 5 (arm64). Das Image wird in CI gebaut
+(`.github/workflows/docker.yml` → `ghcr.io/screenable/printable`), auf dem Pi
+läuft nur noch `docker` (kein Quellcode nötig).
+
+`.env` auf dem Pi anlegen (nur die 3 Bootstrap-Werte):
+
+```env
+DEVICE_ID=box-edeka-nord-01
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_KEY=ey...
+```
+
+Starten:
 
 ```bash
-npm run lint
+docker compose pull      # zieht das Image aus GHCR
+docker compose up -d
+docker compose logs -f
 ```
 
-### Docker
+> Das GHCR-**Package** muss einmalig auf „public" stehen (Paket-Sichtbarkeit ist
+> unabhängig von der Repo-Sichtbarkeit), dann funktioniert `docker pull` ohne
+> Login.
 
-Build the Docker image:
+Wichtig (siehe `docker-compose.yml`):
+
+- **GPIO (Pi 5):** `privileged: true` gibt dem Container Zugriff auf
+  `/dev/gpiochip*` (RP1) und Audio – die Pins werden wie in der Box-Config
+  gelesen. Feiner statt privileged: die auskommentierte `devices:`/`group_add:`
+  -Variante (Chip-Nummern mit `ls /dev/gpiochip*` prüfen).
+- **WLED & Drucker:** `network_mode: host` → der Container erreicht WLED
+  (`http://<WLED_IP>/json`) und den Drucker (`:9100`) direkt per LAN-IP.
+- **Persistenz:** Der Offline-Store liegt im Volume `printable-data` (`/data`) –
+  Gutscheine/Jobs/Ereignisse überstehen Neustart & Update.
+- **Updates:** über Image-Tags (`docker compose pull && up -d`), nicht über den
+  in-Container-git-Updater (der ist im Container automatisch deaktiviert). Für
+  automatische Updates optional [Watchtower](https://containrrr.dev/watchtower/).
+
+## Supabase einrichten
 
 ```bash
-npm run docker:build
+supabase db push                 # Migrationen (supabase/migrations)
+psql "$DATABASE_URL" -f supabase/seed.sql   # optionaler Beispiel-Seed
 ```
 
-Run the Docker container:
+Tabellen: `devices`, `device_templates`, `voucher_pool` (+ bestehende
+`templates`, `print_jobs`). Gutscheine werden atomar reserviert
+(`reserve_vouchers`, `FOR UPDATE SKIP LOCKED`) – ein Code liegt physisch auf
+genau einer Box, das globale Bestandslimit hält auch offline.
+
+## Web-Konsole
+
+Vue 3 + Vite + Tailwind App unter [`web/`](web/) (Generator, Config-Editor,
+Bon-Editor mit Live-Vorschau):
 
 ```bash
-npm run docker:run
+cd web && npm install && npm run dev     # oder: npm run build → dist/
 ```
 
-### CI/CD
+Details in [`web/README.md`](web/README.md).
 
-This repository includes GitHub Actions workflows:
+## Entwicklung
 
-1. **Build and Check** (`build-and-check.yml`): Runs on pushes and pull requests to the `main` branch. Builds, lints, and tests the application.
-
-2. **Automatic Release** (`release.yml`): Automatically creates a new GitHub release when code is merged to the `main`/`master` branch. The workflow:
-   - Checks the current version in `package.json`
-   - Automatically bumps the patch version if a release with the current version already exists
-   - Creates a git tag for the new version
-   - Generates a changelog from git commits
-   - Creates a GitHub release with the changelog
-
-The release workflow ensures that every merge to the main branch results in a new versioned release, making it easy to track changes and updates.
-
-## Project Structure
-
-```
-.
-├── src
-│   ├── routes          # Fastify route definitions
-│   ├── server.ts       # Fastify server setup
-│   └── index.ts        # Application entry point
-├── .github
-│   └── workflows       # GitHub Actions workflows
-├── .vscode             # VS Code settings
-├── Dockerfile          # Docker configuration
-├── package.json        # Project metadata and scripts
-├── tsconfig.json       # TypeScript configuration
-└── .env.example        # Example environment variables
+```bash
+npm install
+cp .env.example .env     # DEVICE_ID, SUPABASE_URL, SUPABASE_KEY setzen
+npm run dev              # Dev-Server (Hardware-Plugins brauchen den Pi)
+npm run build            # tsc
+npm test                 # Unit-Tests (Stores, Filler, Selector)
+npm run lint             # Biome
 ```
 
-## Scripts
+Die Hardware-Plugins (`pigpio`, Sound, WLED) laufen nur auf dem Pi; Build, Tests
+und die reine Logik (Auswahl, Pool, Filler) laufen überall.
 
-- `npm run dev`: Start the development server.
-- `npm test`: Run tests.
-- `npm run lint`: Lint the codebase.
-- `npm run docker:build`: Build the Docker image.
-- `npm run docker:run`: Run the Docker container.
+## Lizenz
 
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository.
-2. Create a new branch for your feature or bugfix.
-3. Commit your changes with clear and concise messages.
-4. Submit a pull request.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
-## Author
-
-Created by [Niels Van den Broeck](https://github.com/CodeCompanionBE).
-
-## Acknowledgments
-
-- [Fastify](https://www.fastify.io/) for the web framework.
-- [TypeScript](https://www.typescriptlang.org/) for type safety.
-- [Docker](https://www.docker.com/) for containerization.
+MIT
