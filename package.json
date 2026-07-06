@@ -1,6 +1,6 @@
 {
   "name": "code-companion-node-ts-template",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Template for fastify apps",
   "main": "index.js",
   "scripts": {
