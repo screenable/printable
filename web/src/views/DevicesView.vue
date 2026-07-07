@@ -1,19 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import { getClient, saveSettings, settings } from '../lib/supabase';
+import { getClient } from '../lib/supabase';
 import type { DeviceRow } from '../lib/types';
 
-const url = ref(settings.url);
-const key = ref(settings.key);
 const devices = ref<DeviceRow[]>([]);
 const status = ref('');
 const loading = ref(false);
-
-function save() {
-  saveSettings(url.value, key.value);
-  load();
-}
 
 function seenLabel(seen: string | null): { text: string; cls: string } {
   if (!seen) return { text: 'nie gesehen', cls: 'pill' };
@@ -65,26 +58,11 @@ onMounted(load);
   <h1 class="text-2xl font-semibold mb-1">Boxen</h1>
   <p class="text-slate-400 mb-5">Übersicht aller Geräte, Heartbeat und Gutschein-Bestand.</p>
 
-  <section class="panel mb-5">
-    <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-3">Verbindung</h2>
-    <div class="grid gap-3 sm:grid-cols-2">
-      <div>
-        <label class="label">Supabase URL</label>
-        <input v-model="url" class="input" placeholder="https://xxxx.supabase.co" />
-      </div>
-      <div>
-        <label class="label">Supabase Key (anon/service)</label>
-        <input v-model="key" type="password" class="input" placeholder="ey..." />
-      </div>
-    </div>
-    <div class="flex items-center gap-3 mt-4">
-      <button class="btn btn-primary" @click="save">Speichern &amp; laden</button>
-      <span class="text-sm text-slate-400">{{ status }}</span>
-    </div>
-  </section>
-
   <section class="panel">
-    <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-3">Geräte</h2>
+    <div class="flex items-center gap-3 mb-3">
+      <h2 class="text-sm uppercase tracking-wide text-slate-400">Geräte</h2>
+      <span class="text-sm text-slate-400 ml-auto">{{ status }}</span>
+    </div>
     <p v-if="loading" class="text-slate-400">Lädt…</p>
     <p v-else-if="!devices.length" class="text-slate-400">Noch keine Box angelegt.</p>
     <div v-else class="overflow-x-auto">

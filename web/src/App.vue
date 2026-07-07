@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router';
-import { isConfigured } from './lib/supabase';
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import { auth, isAuthenticated, signOut } from './lib/supabase';
+
+const route = useRoute();
+const router = useRouter();
+
+async function logout() {
+  await signOut();
+  router.replace({ name: 'login' });
+}
 </script>
 
 <template>
   <div class="min-h-screen">
     <header
+      v-if="route.name !== 'login'"
       class="sticky top-0 z-10 flex items-center gap-6 px-6 py-3 bg-brand-panel border-b border-brand-border"
     >
       <span class="font-bold tracking-wide">🖨️ Printable</span>
@@ -33,9 +42,10 @@ import { isConfigured } from './lib/supabase';
           Bon-Editor
         </RouterLink>
       </nav>
-      <span v-if="!isConfigured()" class="ml-auto text-xs text-amber-300">
-        Nicht verbunden – Zugangsdaten unter „Boxen"
-      </span>
+      <div v-if="isAuthenticated()" class="ml-auto flex items-center gap-3 text-sm">
+        <span class="text-slate-400">{{ auth.user?.email }}</span>
+        <button class="btn btn-ghost" @click="logout">Abmelden</button>
+      </div>
     </header>
 
     <main class="max-w-5xl mx-auto p-6">
