@@ -29,7 +29,17 @@ const device = ref<DeviceRow | null>(null);
 const sub = ref('');
 
 // Config-Formular
-const cfg = ref({ name: '', location: '', desired: '', printerHost: '', printerPort: 9100, cooldownMs: 1000, redeemBaseUrl: '', json: '' });
+const cfg = ref({
+  name: '',
+  location: '',
+  desired: '',
+  printerHost: '',
+  printerPort: 9100,
+  wledIp: '',
+  cooldownMs: 1000,
+  redeemBaseUrl: '',
+  json: '',
+});
 const cfgMsg = ref('');
 
 // Preise (Template-Mix)
@@ -382,6 +392,7 @@ async function loadDevice() {
     desired: d.desired_version || '',
     printerHost: d.config?.printer?.host || '',
     printerPort: d.config?.printer?.port || 9100,
+    wledIp: d.config?.led?.wledIp || '',
     cooldownMs: d.config?.dispense?.cooldownMs ?? 1000,
     redeemBaseUrl: d.config?.dispense?.redeemBaseUrl || '',
     json: JSON.stringify(d.config || {}, null, 2),
@@ -421,6 +432,11 @@ async function saveConfig() {
   let config: Record<string, unknown>;
   try { config = JSON.parse(cfg.value.json); } catch (e) { cfgMsg.value = 'JSON ungültig: ' + (e as Error).message; return; }
   config.printer = { ...(config.printer as object), host: cfg.value.printerHost, port: Number(cfg.value.printerPort) };
+  const led = { ...(config.led as object) } as Record<string, unknown>;
+  const wledIp = cfg.value.wledIp.trim();
+  if (wledIp) led.wledIp = wledIp;
+  else delete led.wledIp;
+  config.led = led;
   config.dispense = {
     ...(config.dispense as object),
     cooldownMs: Number(cfg.value.cooldownMs),
@@ -461,7 +477,7 @@ async function saveMix() {
   const toDelete = mix.value.filter(r => r._delete && r.id).map(r => r.id as number);
   if (toDelete.length) await c.from('device_templates').delete().in('id', toDelete);
   const rows = visibleMix.value.map(r => ({
-    id: r.id, device_id: props.id, template_id: r.template_id,
+    device_id: props.id, template_id: r.template_id,
     probability: Number(r.probability) || 0, cooldown_sec: Number(r.cooldown_sec) || 0,
     reward_type: r.reward_type || 'none', voucher_category: r.voucher_category || null,
     static_code: r.static_code || null, daily_limit: r.daily_limit ? Number(r.daily_limit) : null,
@@ -505,6 +521,7 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
       <div><label class="label">Gewünschte Version</label><input v-model="cfg.desired" class="input" placeholder="v1.2.0" /></div>
       <div><label class="label">Drucker-Host</label><input v-model="cfg.printerHost" class="input" /></div>
       <div><label class="label">Drucker-Port</label><input v-model.number="cfg.printerPort" type="number" class="input" /></div>
+      <div><label class="label">WLED IP</label><input v-model="cfg.wledIp" class="input" placeholder="192.168.1.100" /></div>
       <div><label class="label">Cooldown (ms)</label><input v-model.number="cfg.cooldownMs" type="number" class="input" /></div>
       <div class="sm:col-span-3"><label class="label">Einlöse-Basis-URL (QR dynamischer Codes)</label><input v-model="cfg.redeemBaseUrl" class="input" placeholder="https://app.screenable.io/r/" /></div>
     </div>
@@ -518,8 +535,8 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
       <span class="text-sm text-slate-400">{{ cfgMsg }}</span>
     </div>
     <p class="text-xs text-slate-500 mt-2">
-      Hinweis: Drucker-IP und Cooldown wirken live (~30 s). Änderungen an
-      GPIO-Pins/LED greifen erst nach „Box neu starten".
+      Hinweis: Drucker-IP und Cooldown wirken live (~30 s). WLED-IP sowie Änderungen an
+      GPIO-Pins/LED greifen nach „Box neu starten".
     </p>
   </section>
 
