@@ -61,7 +61,7 @@ describe('compile', () => {
     const blocks: Block[] = [
       { kind: 'space', count: 2 },
       { kind: 'rule', style: 'double' },
-      { kind: 'qrcode', value: '{{redeem_url}}', align: 'center' },
+      { kind: 'qrcode', value: '{{redeem_url}}', align: 'center', size: 6, errorlevel: 'm' },
       { kind: 'barcode', value: '{{code}}', symbology: 'ean13', height: 60, align: 'center' },
       { kind: 'image', input: 'https://x/y.png', width: 576, height: 320, align: 'center' },
       { kind: 'cut', value: 'full' },
@@ -152,9 +152,35 @@ describe('round-trip', () => {
       text({ text: '{{price}} RABATT', align: 'center', size: 'gross', bold: true }),
       { kind: 'space', count: 1 },
       text({ text: 'Code: {{code}}', align: 'center' }),
-      { kind: 'qrcode', value: '{{redeem_url}}', align: 'center' },
+      { kind: 'qrcode', value: '{{redeem_url}}', align: 'center', size: 8, errorlevel: 'h' },
       { kind: 'cut', value: 'full' },
     ];
     expect(decompile(compile(blocks))).toEqual(blocks);
+  });
+});
+
+describe('QR-Optionen', () => {
+  it('kompiliert size und errorlevel in die Element-Optionen', () => {
+    const els = compile([{ kind: 'qrcode', value: 'X', align: 'center', size: 8, errorlevel: 'q' }]);
+    expect(els).toContainEqual({
+      type: 'qrcode',
+      value: 'X',
+      options: { model: 2, size: 8, errorlevel: 'q' },
+    });
+  });
+
+  it('klemmt ungültige size auf 1–8 und ungültiges errorlevel auf Default', () => {
+    const els = compile([{ kind: 'qrcode', value: 'X', align: 'left', size: 99, errorlevel: 'x' as never }]);
+    expect(els[0]).toMatchObject({ options: { size: 8, errorlevel: 'm' } });
+  });
+
+  it('liest size/errorlevel beim decompile aus den Optionen (Default wenn fehlend)', () => {
+    const withOpts = decompile([
+      { type: 'qrcode', value: 'A', options: { size: 4, errorlevel: 'h' } },
+    ])[0];
+    expect(withOpts).toMatchObject({ kind: 'qrcode', size: 4, errorlevel: 'h' });
+
+    const noOpts = decompile([{ type: 'qrcode', value: 'B' }])[0];
+    expect(noOpts).toMatchObject({ kind: 'qrcode', size: 6, errorlevel: 'm' });
   });
 });

@@ -40,7 +40,23 @@ export type TextBlock = {
 };
 export type SpaceBlock = { kind: 'space'; count: number };
 export type RuleBlock = { kind: 'rule'; style: 'single' | 'double' | 'none' };
-export type QrBlock = { kind: 'qrcode'; value: string; align: Align };
+
+/** QR-Fehlerkorrektur: l ~7 %, m ~15 %, q ~25 %, h ~30 %. */
+export type QrErrorLevel = 'l' | 'm' | 'q' | 'h';
+export type QrBlock = { kind: 'qrcode'; value: string; align: Align; size: number; errorlevel: QrErrorLevel };
+
+export const QR_SIZE_MIN = 1;
+export const QR_SIZE_MAX = 8;
+export const QR_SIZE_DEFAULT = 6;
+export const QR_ERRORLEVEL_DEFAULT: QrErrorLevel = 'm';
+
+const clampQrSize = (n: unknown): number => {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return QR_SIZE_DEFAULT;
+  return Math.min(QR_SIZE_MAX, Math.max(QR_SIZE_MIN, v));
+};
+const asErrorLevel = (v: unknown): QrErrorLevel =>
+  v === 'l' || v === 'm' || v === 'q' || v === 'h' ? v : QR_ERRORLEVEL_DEFAULT;
 export type BarcodeBlock = { kind: 'barcode'; value: string; symbology: string; height: number; align: Align };
 export type ImageBlock = { kind: 'image'; input: string; width: number; height: number; align: Align };
 export type CutBlock = { kind: 'cut'; value: 'full' | 'partial' };
@@ -124,7 +140,11 @@ export function compile(blocks: Block[]): ReceiptElement[] {
         break;
       case 'qrcode':
         setAlign(b.align);
-        els.push({ type: 'qrcode', value: b.value, options: { model: 2, size: 6, errorlevel: 'm' } });
+        els.push({
+          type: 'qrcode',
+          value: b.value,
+          options: { model: 2, size: clampQrSize(b.size), errorlevel: asErrorLevel(b.errorlevel) },
+        });
         break;
       case 'barcode':
         setAlign(b.align);
@@ -201,10 +221,18 @@ export function decompile(elements: ReceiptElement[]): Block[] {
         blocks.push({ kind: 'rule', style: (el.style as RuleBlock['style']) || 'single' });
         awaitingBreak = false;
         break;
-      case 'qrcode':
-        blocks.push({ kind: 'qrcode', value: String(el.value ?? ''), align });
+      case 'qrcode': {
+        const opts = (el.options ?? {}) as { size?: unknown; errorlevel?: unknown };
+        blocks.push({
+          kind: 'qrcode',
+          value: String(el.value ?? ''),
+          align,
+          size: clampQrSize(opts.size),
+          errorlevel: asErrorLevel(opts.errorlevel),
+        });
         awaitingBreak = false;
         break;
+      }
       case 'barcode':
         blocks.push({
           kind: 'barcode',

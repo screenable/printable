@@ -12,6 +12,11 @@ import {
   decompile,
   type ImageBlock,
   type QrBlock,
+  QR_ERRORLEVEL_DEFAULT,
+  QR_SIZE_DEFAULT,
+  QR_SIZE_MAX,
+  QR_SIZE_MIN,
+  type QrErrorLevel,
   type RuleBlock,
   SIZE_LABEL,
   type SizeKey,
@@ -33,13 +38,19 @@ const ALIGNS: { v: Align; label: string }[] = [
   { v: 'right', label: 'Rechts' },
 ];
 const SIZE_KEYS: SizeKey[] = ['normal', 'gross', 'riesig'];
+const QR_ERRORLEVELS: { v: QrErrorLevel; label: string }[] = [
+  { v: 'l', label: 'Niedrig (~7 %)' },
+  { v: 'm', label: 'Mittel (~15 %)' },
+  { v: 'q', label: 'Hoch (~25 %)' },
+  { v: 'h', label: 'Sehr hoch (~30 %)' },
+];
 
 // Palette: jeder Eintrag hängt einen neuen Block an.
 const PALETTE: { label: string; make: () => Block }[] = [
   { label: 'Text', make: () => ({ kind: 'text', text: 'Text', align: 'center', size: 'normal', bold: false, italic: false, underline: false }) },
   { label: 'Leerzeile', make: () => ({ kind: 'space', count: 1 }) },
   { label: 'Linie', make: () => ({ kind: 'rule', style: 'single' }) },
-  { label: 'QR-Code', make: () => ({ kind: 'qrcode', value: '{{redeem_url}}', align: 'center' }) },
+  { label: 'QR-Code', make: () => ({ kind: 'qrcode', value: '{{redeem_url}}', align: 'center', size: QR_SIZE_DEFAULT, errorlevel: QR_ERRORLEVEL_DEFAULT }) },
   { label: 'Barcode', make: () => ({ kind: 'barcode', value: '{{code}}', symbology: 'ean13', height: 60, align: 'center' }) },
   { label: 'Bild', make: () => ({ kind: 'image', input: '', width: RECEIPT_MAX_WIDTH, height: 200, align: 'center' }) },
   { label: 'Schnitt', make: () => ({ kind: 'cut', value: 'full' }) },
@@ -52,7 +63,7 @@ const STARTER: Block[] = [
   { kind: 'text', text: '{{price}} RABATT', align: 'center', size: 'gross', bold: true, italic: false, underline: false },
   { kind: 'space', count: 1 },
   { kind: 'text', text: 'Code: {{code}}', align: 'center', size: 'normal', bold: false, italic: false, underline: false },
-  { kind: 'qrcode', value: '{{redeem_url}}', align: 'center' },
+  { kind: 'qrcode', value: '{{redeem_url}}', align: 'center', size: QR_SIZE_DEFAULT, errorlevel: QR_ERRORLEVEL_DEFAULT },
   { kind: 'text', text: 'In der App einlösen', align: 'center', size: 'normal', bold: false, italic: false, underline: false },
   { kind: 'space', count: 2 },
   { kind: 'cut', value: 'full' },
@@ -317,8 +328,20 @@ onMounted(() => { loadList(); draw(); });
             <!-- QR-CODE -->
             <div v-else-if="block.kind === 'qrcode'" class="space-y-2">
               <input v-model="(block as QrBlock).value" class="input" :placeholder="'{{redeem_url}}'" />
-              <div class="flex gap-1">
-                <button v-for="a in ALIGNS" :key="a.v" class="btn px-2 py-0.5 text-xs" :class="(block as QrLike).align === a.v ? 'btn-primary' : 'btn-ghost'" @click="(block as QrLike).align = a.v">{{ a.label }}</button>
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="flex gap-1">
+                  <button v-for="a in ALIGNS" :key="a.v" class="btn px-2 py-0.5 text-xs" :class="(block as QrLike).align === a.v ? 'btn-primary' : 'btn-ghost'" @click="(block as QrLike).align = a.v">{{ a.label }}</button>
+                </div>
+                <label class="text-xs text-slate-400 flex items-center gap-1">
+                  Größe
+                  <input v-model.number="(block as QrBlock).size" type="number" :min="QR_SIZE_MIN" :max="QR_SIZE_MAX" class="input w-16 py-1 text-xs" />
+                </label>
+                <label class="text-xs text-slate-400 flex items-center gap-1">
+                  Fehlerkorrektur
+                  <select v-model="(block as QrBlock).errorlevel" class="input w-40 py-1 text-xs">
+                    <option v-for="e in QR_ERRORLEVELS" :key="e.v" :value="e.v">{{ e.label }}</option>
+                  </select>
+                </label>
               </div>
             </div>
 

@@ -19,6 +19,7 @@ interface Line {
   src?: string;
   imgW?: number;
   imgH?: number;
+  qrSize?: number;
 }
 
 // Bild-Cache für die Vorschau. Bilder laden asynchron; sobald ein Bild da ist,
@@ -98,7 +99,7 @@ export function renderReceipt(
         for (let i = 0; i < (e.count ?? 1); i++) lines.push({ kind: 'gap' });
         break;
       case 'rule': lines.push({ kind: 'rule' }); break;
-      case 'qrcode': lines.push({ kind: 'qr', text: fill(String(e.value ?? '')) }); break;
+      case 'qrcode': lines.push({ kind: 'qr', text: fill(String(e.value ?? '')), qrSize: Number((e.options as { size?: number } | undefined)?.size) || 6 }); break;
       case 'barcode': lines.push({ kind: 'barcode', text: fill(String(e.value ?? '')) }); break;
       case 'image':
         lines.push({
@@ -128,8 +129,12 @@ export function renderReceipt(
     return { w, h };
   };
 
+  // QR-Vorschau als Quadrat, dessen Kantenlänge mit der eingestellten Größe
+  // (1–8) wächst – gibt ein Gefühl fürs Druckbild (size 6 ≈ 120 px).
+  const qrSide = (l: Line) => Math.min(8, Math.max(1, l.qrSize || 6)) * 16 + 24;
+
   const heights = lines.map(l => {
-    if (l.kind === 'qr') return 120;
+    if (l.kind === 'qr') return qrSide(l);
     if (l.kind === 'barcode') return 60;
     if (l.kind === 'image') return imageDisplaySize(l).h + 12;
     if (l.kind === 'gap' || l.kind === 'rule' || l.kind === 'cut') return lineH;
@@ -198,7 +203,8 @@ export function renderReceipt(
       return;
     }
     if (l.kind === 'qr' || l.kind === 'barcode') {
-      const w = l.kind === 'qr' ? 96 : 200;
+      // QR quadratisch (Kantenlänge = Zeilenhöhe), Barcode breit/flach.
+      const w = l.kind === 'qr' ? h - 12 : 200;
       const bh = h - 12;
       const x = (width - w) / 2;
       ctx.fillStyle = '#000';
