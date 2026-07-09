@@ -356,7 +356,7 @@ onMounted(() => { loadList(); draw(); });
         <canvas ref="canvas" class="shadow-2xl rounded-sm max-w-full"></canvas>
       </div>
       <p class="text-slate-400 text-xs mt-2">
-        Layout-Simulation (Font A, 42 Zeichen). Der Pi rendert dieselbe Element-Liste mit dem echten ESC/POS-Encoder.
+        Layout-Simulation (80&nbsp;mm, Font A, 48 Zeichen). Der Pi rendert dieselbe Element-Liste mit dem echten ESC/POS-Encoder.
       </p>
     </section>
   </div>

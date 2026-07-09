@@ -1,10 +1,13 @@
 // Bon-Vorschau (80mm Thermodruck-Simulation).
-// Layout-treu (Font A, 42 Zeichen), nicht byte-genau der ESC/POS-Encoder – der
+// Layout-treu (Font A, 48 Zeichen), nicht byte-genau der ESC/POS-Encoder – der
 // Pi rendert dieselbe Element-Liste mit dem echten Encoder.
 import type { ReceiptElement } from './types';
 import { RECEIPT_MAX_WIDTH } from './receipt-image';
 
-const CHARS_PER_LINE = 42;
+// 80-mm-Papier, TM-m30III Font A (12x24 Dots): 576 / 12 = 48 Zeichen pro Zeile.
+// Muss der `columns`-Angabe des echten Encoders (epson-tm-m30iii) entsprechen,
+// damit die Vorschau genauso umbricht wie der Druck.
+const CHARS_PER_LINE = 48;
 
 interface Line {
   kind: 'text' | 'gap' | 'rule' | 'cut' | 'qr' | 'barcode' | 'image';
