@@ -26,7 +26,10 @@ function loadPreviewImage(src: string): Promise<void> {
   if (!src || imgCache.has(src)) return Promise.resolve();
   return new Promise(resolve => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // Bewusst OHNE crossOrigin: die Vorschau liest die Canvas-Pixel nie zurück,
+    // also ist Tainting egal. Mit crossOrigin='anonymous' würde ein fehlender/
+    // gecachter CORS-Header das Laden scheitern lassen -> Platzhalter trotz
+    // korrekt gespeicherter URL.
     img.onload = () => {
       imgCache.set(src, img);
       resolve();

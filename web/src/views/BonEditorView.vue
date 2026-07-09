@@ -101,7 +101,7 @@ async function onImageUpload(i: number, ev: Event) {
     el.input = data.publicUrl;
     el.width = opt.width;
     el.height = opt.height;
-    msg.value = `Bild optimiert (${opt.width}×${opt.height} px) & hochgeladen ✓`;
+    msg.value = `Bild optimiert (${opt.width}×${opt.height} px) – jetzt „Speichern" klicken, damit es im Template landet.`;
   } catch (e) {
     msg.value = 'Upload fehlgeschlagen: ' + (e as Error).message;
   } finally {
