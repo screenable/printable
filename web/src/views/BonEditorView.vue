@@ -80,6 +80,18 @@ watch(elements, draw, { deep: true });
 // gelegt. Das Element bekommt die öffentliche URL + die optimierten Maße.
 const uploading = ref<number | null>(null);
 
+/** Hat das Bild-Element bereits ein hochgeladenes/verlinktes Bild? */
+function hasImage(el: ReceiptElement): boolean {
+  return typeof el.input === 'string' && /^https?:/.test(el.input);
+}
+
+/** Bild aus dem Element entfernen (Storage-Objekt bleibt liegen – harmlos). */
+function clearImage(i: number) {
+  const el = elements.value[i];
+  el.input = '';
+  msg.value = 'Bild entfernt – „Speichern" nicht vergessen.';
+}
+
 async function onImageUpload(i: number, ev: Event) {
   const input = ev.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -300,15 +312,18 @@ onMounted(() => { loadList(); draw(); });
                 <input v-model.number="el.width" type="number" class="input w-20" placeholder="B" />
                 <input v-model.number="el.height" type="number" class="input w-20" placeholder="H" />
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <label class="btn btn-ghost px-2.5 py-1 text-xs cursor-pointer">
-                  {{ uploading === i ? 'Lädt…' : '⬆ Bild hochladen' }}
+                  {{ uploading === i ? 'Lädt…' : hasImage(el) ? '⬆ Bild ersetzen' : '⬆ Bild hochladen' }}
                   <input type="file" accept="image/*" class="hidden" :disabled="uploading === i" @change="onImageUpload(i, $event)" />
                 </label>
+                <button v-if="hasImage(el)" class="btn btn-ghost px-2.5 py-1 text-xs text-slate-400" :disabled="uploading === i" @click="clearImage(i)">
+                  Entfernen
+                </button>
                 <span class="text-xs text-slate-500">wird auto. auf max. {{ RECEIPT_MAX_WIDTH }} px optimiert</span>
               </div>
               <img
-                v-if="typeof el.input === 'string' && /^https?:/.test(el.input)"
+                v-if="hasImage(el)"
                 :src="el.input"
                 alt="Vorschau"
                 class="max-h-24 border border-brand-border rounded bg-white"
