@@ -134,7 +134,9 @@ export function renderReceipt(
   canvas.width = width * scale;
   canvas.height = totalH * scale;
   canvas.style.width = width + 'px';
-  canvas.style.height = totalH + 'px';
+  // Höhe proportional lassen: bei schmalem Panel begrenzt `max-w-full` die
+  // Breite; mit fixer Pixel-Höhe würde die Vorschau sonst horizontal gestaucht.
+  canvas.style.height = 'auto';
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, width, totalH);
