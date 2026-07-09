@@ -23,6 +23,11 @@ function floorTo8(n: number): number {
   return Math.max(8, Math.floor(n / 8) * 8);
 }
 
+/** Auf das nächste Vielfache von 8 runden (min. 8). */
+function roundTo8(n: number): number {
+  return Math.max(8, Math.round(n / 8) * 8);
+}
+
 function loadFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -46,9 +51,14 @@ export async function optimizeForReceipt(
   const img = await loadFile(file);
   if (!img.width || !img.height) throw new Error('Bild hat keine gültigen Maße');
 
-  // Nur verkleinern, nie hochskalieren.
+  // Nur verkleinern, nie hochskalieren. Breite bestimmt die (gleichmäßige)
+  // Skalierung; das Bild wird NIE verzerrt.
   const targetW = floorTo8(Math.min(img.width, maxWidth));
-  const targetH = floorTo8(Math.round((targetW / img.width) * img.height));
+  const scale = targetW / img.width;
+  const scaledH = img.height * scale; // seitenverhältnis-treue Höhe
+  // Canvas-Höhe muss ebenfalls ein Vielfaches von 8 sein -> nächstes ×8. Die
+  // Differenz (max. ~4 px oben/unten) ist weißer Rand, keine Verzerrung.
+  const targetH = roundTo8(scaledH);
 
   const canvas = document.createElement('canvas');
   canvas.width = targetW;
@@ -56,12 +66,14 @@ export async function optimizeForReceipt(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas nicht verfügbar');
 
-  // Weißer Grund, damit Transparenz nicht als Schwarz gedruckt wird.
+  // Weißer Grund, damit Transparenz (und der ×8-Rand) nicht schwarz gedruckt wird.
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, targetW, targetH);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, targetW, targetH);
+  // Volle Breite, aspektgetreue Höhe, vertikal zentriert -> keine Streckung.
+  const offsetY = Math.round((targetH - scaledH) / 2);
+  ctx.drawImage(img, 0, offsetY, targetW, scaledH);
 
   // In Graustufen umwandeln (Luminanz nach Rec. 601).
   const data = ctx.getImageData(0, 0, targetW, targetH);
