@@ -3,7 +3,7 @@ import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder';
 import NetworkReceiptPrinter from '@point-of-sale/network-receipt-printer';
 import { createCanvas, loadImage } from 'canvas';
 import { bus } from './event-bus';
-import { configService, jobStore, logEvent } from './app-context';
+import { configService, imageCache, jobStore, logEvent } from './app-context';
 import { type FilledTemplate, FilledTemplateSchema } from './types/template.validation';
 import type { LocalJob } from './types/dispense.types';
 
@@ -27,7 +27,9 @@ export async function startPrintWorker(server: FastifyInstance) {
   };
 
   async function canvasFromUrl(url: string) {
-    const img = await loadImage(url);
+    // Aus dem Offline-Cache laden (Fallback: einmaliger Download). So bleiben
+    // Bon-Bilder auch ohne Internet druckbar.
+    const img = await loadImage(await imageCache.getBuffer(url));
     const canvas = createCanvas(img.width, img.height);
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, img.width, img.height);
