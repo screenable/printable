@@ -5,6 +5,7 @@
 import { TemplateSelector } from './helpers/template-selector';
 import { configService } from './services/config-service';
 import { EventStore, type EventLevel } from './services/event-store';
+import { ImageCache } from './services/image-cache';
 import { JobStore } from './services/job-store';
 import { TemplateRegistry } from './services/template-registry';
 import { VoucherStore } from './services/voucher-store';
@@ -14,6 +15,7 @@ export const jobStore = new JobStore();
 export const templateRegistry = new TemplateRegistry();
 export const selector = new TemplateSelector(templateRegistry.all());
 export const eventStore = new EventStore();
+export const imageCache = new ImageCache();
 
 /** Bequemes Protokollieren eines Ereignisses (in den Offline-Puffer). */
 export function logEvent(
@@ -33,6 +35,7 @@ export const appContext = {
   templateRegistry,
   selector,
   eventStore,
+  imageCache,
   configService,
 };
 export type AppContext = typeof appContext;

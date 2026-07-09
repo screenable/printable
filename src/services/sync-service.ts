@@ -19,6 +19,7 @@ import { supabase } from '../lib/supabase-client';
 import {
   configService,
   eventStore,
+  imageCache,
   jobStore,
   selector,
   templateRegistry,
@@ -136,6 +137,11 @@ export class SyncService {
         templateRegistry.replace(templates);
         selector.setTemplates(templateRegistry.all());
         this.log.info({ count: templates.length }, 'sync: templates updated');
+        // Referenzierte Bon-Bilder in den Offline-Cache laden, solange online.
+        const imageUrls = templates.flatMap(t =>
+          t.layout.elements.filter(el => el.type === 'image').map(el => el.input),
+        );
+        if (imageUrls.length > 0) void imageCache.warm(imageUrls);
       }
     } catch (err) {
       this.log.warn({ err }, 'sync: pullTemplates failed – using cached templates');
