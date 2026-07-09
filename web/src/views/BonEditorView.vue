@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { getClient } from '../lib/supabase';
-import { renderReceipt } from '../lib/receipt';
+import { preloadImages, renderReceipt } from '../lib/receipt';
+import { optimizeForReceipt, RECEIPT_MAX_WIDTH } from '../lib/receipt-image';
 import type { ReceiptElement, ReceiptTemplate, TemplateRow } from '../lib/types';
+
+const IMAGE_BUCKET = 'template-images';
 
 const placeholders = '{{code}}, {{redeem_url}}, {{price}}, {{date}}, {{time}}';
 
@@ -19,7 +22,7 @@ const PALETTE: { label: string; make: () => ReceiptElement }[] = [
   { label: 'Linie', make: () => ({ type: 'rule', style: 'single' }) },
   { label: 'QR (Einlösen)', make: () => ({ type: 'qrcode', value: '{{redeem_url}}', options: { model: 2, size: 6, errorlevel: 'm' } }) },
   { label: 'Barcode', make: () => ({ type: 'barcode', value: '{{code}}', symbology: 'ean13', height: 60 }) },
-  { label: 'Bild', make: () => ({ type: 'image', input: 'https://beispiel.de/barcode.png', width: 300, height: 120 }) },
+  { label: 'Bild', make: () => ({ type: 'image', input: '', width: RECEIPT_MAX_WIDTH, height: 200 }) },
   { label: 'Schnitt', make: () => ({ type: 'cut', value: 'full' }) },
 ];
 
@@ -64,10 +67,48 @@ const TYPE_LABEL: Record<string, string> = {
   qrcode: 'QR-Code', barcode: 'Barcode', image: 'Bild', cut: 'Schnitt',
 };
 
-function draw() {
+async function draw() {
+  if (!canvas.value) return;
+  await preloadImages(elements.value);
   if (canvas.value) renderReceipt(canvas.value, elements.value);
 }
 watch(elements, draw, { deep: true });
+
+// ── Bild-Upload ─────────────────────────────────────────────────────────────
+// Uploads werden vor dem Speichern auf die Bonbreite des Druckers optimiert
+// (TM-m30III: 576 Dots), in Graustufen gewandelt und in den Storage-Bucket
+// gelegt. Das Element bekommt die öffentliche URL + die optimierten Maße.
+const uploading = ref<number | null>(null);
+
+async function onImageUpload(i: number, ev: Event) {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  const c = getClient();
+  if (!c) { msg.value = 'Keine Supabase-Verbindung'; return; }
+
+  uploading.value = i;
+  msg.value = '';
+  try {
+    const opt = await optimizeForReceipt(file);
+    const path = `templates/${crypto.randomUUID()}.png`;
+    const { error } = await c.storage
+      .from(IMAGE_BUCKET)
+      .upload(path, opt.blob, { contentType: 'image/png', upsert: false });
+    if (error) throw error;
+    const { data } = c.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+    const el = elements.value[i];
+    el.input = data.publicUrl;
+    el.width = opt.width;
+    el.height = opt.height;
+    msg.value = `Bild optimiert (${opt.width}×${opt.height} px) & hochgeladen ✓`;
+  } catch (e) {
+    msg.value = 'Upload fehlgeschlagen: ' + (e as Error).message;
+  } finally {
+    uploading.value = null;
+    input.value = ''; // erlaubt erneutes Wählen derselben Datei
+  }
+}
 
 // ── Element-Operationen ─────────────────────────────────────────────────────
 function add(make: () => ReceiptElement) {
@@ -253,10 +294,25 @@ onMounted(() => { loadList(); draw(); });
               </select>
             </div>
 
-            <div v-else-if="el.type === 'image'" class="flex gap-2 items-center">
-              <input v-model="el.input" class="input flex-1" placeholder="https://…/bild.png" />
-              <input v-model.number="el.width" type="number" class="input w-20" placeholder="B" />
-              <input v-model.number="el.height" type="number" class="input w-20" placeholder="H" />
+            <div v-else-if="el.type === 'image'" class="space-y-2">
+              <div class="flex gap-2 items-center">
+                <input v-model="el.input" class="input flex-1" placeholder="https://…/bild.png" />
+                <input v-model.number="el.width" type="number" class="input w-20" placeholder="B" />
+                <input v-model.number="el.height" type="number" class="input w-20" placeholder="H" />
+              </div>
+              <div class="flex items-center gap-2">
+                <label class="btn btn-ghost px-2.5 py-1 text-xs cursor-pointer">
+                  {{ uploading === i ? 'Lädt…' : '⬆ Bild hochladen' }}
+                  <input type="file" accept="image/*" class="hidden" :disabled="uploading === i" @change="onImageUpload(i, $event)" />
+                </label>
+                <span class="text-xs text-slate-500">wird auto. auf max. {{ RECEIPT_MAX_WIDTH }} px optimiert</span>
+              </div>
+              <img
+                v-if="typeof el.input === 'string' && /^https?:/.test(el.input)"
+                :src="el.input"
+                alt="Vorschau"
+                class="max-h-24 border border-brand-border rounded bg-white"
+              />
             </div>
 
             <select v-else-if="el.type === 'cut'" v-model="el.value as string" class="input w-40">

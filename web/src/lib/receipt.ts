@@ -2,6 +2,7 @@
 // Layout-treu (Font A, 42 Zeichen), nicht byte-genau der ESC/POS-Encoder – der
 // Pi rendert dieselbe Element-Liste mit dem echten Encoder.
 import type { ReceiptElement } from './types';
+import { RECEIPT_MAX_WIDTH } from './receipt-image';
 
 const CHARS_PER_LINE = 42;
 
@@ -12,6 +13,38 @@ interface Line {
   sizeW?: number;
   sizeH?: number;
   bold?: boolean;
+  src?: string;
+  imgW?: number;
+  imgH?: number;
+}
+
+// Bild-Cache für die Vorschau. Bilder laden asynchron; sobald ein Bild da ist,
+// löst `preloadImages` das Promise auf und die View zeichnet neu.
+const imgCache = new Map<string, HTMLImageElement>();
+
+function loadPreviewImage(src: string): Promise<void> {
+  if (!src || imgCache.has(src)) return Promise.resolve();
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      imgCache.set(src, img);
+      resolve();
+    };
+    img.onerror = () => resolve(); // Fehler -> Platzhalter bleibt.
+    img.src = src;
+  });
+}
+
+/**
+ * Lädt alle referenzierten Bild-URLs vor, damit die synchrone `renderReceipt`
+ * sie sofort zeichnen kann. Vor jedem Zeichnen aus der View aufrufen.
+ */
+export async function preloadImages(elements: ReceiptElement[]): Promise<void> {
+  const urls = elements
+    .filter(e => e.type === 'image' && typeof e.input === 'string' && e.input)
+    .map(e => e.input as string);
+  await Promise.all(urls.map(loadPreviewImage));
 }
 
 export function renderReceipt(
@@ -61,16 +94,38 @@ export function renderReceipt(
       case 'rule': lines.push({ kind: 'rule' }); break;
       case 'qrcode': lines.push({ kind: 'qr', text: fill(String(e.value ?? '')) }); break;
       case 'barcode': lines.push({ kind: 'barcode', text: fill(String(e.value ?? '')) }); break;
-      case 'image': lines.push({ kind: 'image' }); break;
+      case 'image':
+        lines.push({
+          kind: 'image',
+          src: typeof e.input === 'string' ? e.input : '',
+          imgW: Number(e.width) || 0,
+          imgH: Number(e.height) || 0,
+        });
+        break;
       case 'cut': lines.push({ kind: 'cut' }); break;
       default: break;
     }
   }
 
+  const contentW = width - padX * 2;
+  // Vorschau-Pixel pro Drucker-Dot: die volle Bonbreite (576 Dots) füllt die
+  // Inhaltsbreite der Vorschau.
+  const dotToPx = contentW / RECEIPT_MAX_WIDTH;
+  const imageDisplaySize = (l: Line): { w: number; h: number } => {
+    const img = l.src ? imgCache.get(l.src) : undefined;
+    // Maße aus dem Element (Drucker-Dots) in Vorschau-Pixel; nie breiter als Inhalt.
+    let w = Math.min(contentW, (l.imgW || RECEIPT_MAX_WIDTH) * dotToPx);
+    const aspect =
+      img && img.width ? img.height / img.width : l.imgW ? (l.imgH || 0) / l.imgW : 0.4;
+    let h = w * aspect;
+    if (!h) h = 90;
+    return { w, h };
+  };
+
   const heights = lines.map(l => {
     if (l.kind === 'qr') return 120;
     if (l.kind === 'barcode') return 60;
-    if (l.kind === 'image') return 90;
+    if (l.kind === 'image') return imageDisplaySize(l).h + 12;
     if (l.kind === 'gap' || l.kind === 'rule' || l.kind === 'cut') return lineH;
     return lineH * (l.sizeH || 1);
   });
@@ -116,8 +171,26 @@ export function renderReceipt(
       y += h;
       return;
     }
-    if (l.kind === 'qr' || l.kind === 'barcode' || l.kind === 'image') {
-      const w = l.kind === 'qr' ? 96 : l.kind === 'barcode' ? 200 : 160;
+    if (l.kind === 'image') {
+      const { w, h: ih } = imageDisplaySize(l);
+      const x = (width - w) / 2;
+      const img = l.src ? imgCache.get(l.src) : undefined;
+      if (img) {
+        ctx.drawImage(img, x, y + 6, w, ih);
+      } else {
+        // Noch nicht geladen / keine URL -> Platzhalter.
+        ctx.fillStyle = '#e5e7eb';
+        ctx.fillRect(x, y + 6, w, ih);
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '11px system-ui';
+        ctx.fillText(l.src ? 'BILD lädt…' : 'BILD (kein Upload)', x + 8, y + ih / 2);
+        ctx.fillStyle = '#111';
+      }
+      y += h;
+      return;
+    }
+    if (l.kind === 'qr' || l.kind === 'barcode') {
+      const w = l.kind === 'qr' ? 96 : 200;
       const bh = h - 12;
       const x = (width - w) / 2;
       ctx.fillStyle = '#000';
