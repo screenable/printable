@@ -18,6 +18,7 @@ export interface DeviceRow {
   last_seen: string | null;
   voucher_stock: Record<string, number> | null;
   dispensed: Record<string, number> | null;
+  dispensed_reset_at: string | null;
 }
 
 export interface TemplateRow {
@@ -58,6 +59,7 @@ export interface DeviceTemplateRow {
   template_layout?: ReceiptTemplate;
   _newCodes?: string;
   _codesMsg?: string;
+  _resetMsg?: string;
 }
 
 export interface PrintJobRow {

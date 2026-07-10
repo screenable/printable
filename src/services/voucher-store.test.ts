@@ -98,4 +98,15 @@ describe('VoucherStore – Gesamt-Limit', () => {
     store.seedTotals({ frische: 10 }); // stale/lower remote must not lower it
     assert.equal(store.totalCount('frische'), 480);
   });
+
+  test('setTotals overwrites counters exactly, including counting down (console reset)', () => {
+    const store = freshStore();
+    store.incrementTotal('frische');
+    store.incrementTotal('frische');
+    store.incrementTotal('obst'); // frische = 2, obst = 1
+    store.setTotals({ obst: 1 }); // Reset von "frische" -> Schlüssel entfällt
+    assert.equal(store.totalCount('frische'), 0);
+    assert.equal(store.totalCount('obst'), 1);
+    assert.deepEqual(store.allTotals(), { obst: 1 });
+  });
 });

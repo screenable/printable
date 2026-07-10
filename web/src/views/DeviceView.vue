@@ -525,6 +525,27 @@ async function saveMix() {
   if (!error) loadMix();
 }
 
+// Gesamt-Zähler eines Preises zurücksetzen (v.a. für statische Codes: deren
+// einziges Limit ist total_limit gegen diesen Zähler – beim Testen ist er sonst
+// irgendwann erschöpft). Die Box übernimmt den Reset beim nächsten Sync über
+// dispensed_reset_at (analog zum Fern-Neustart) und zählt den Wert lokal herunter.
+async function resetCounter(r: DeviceTemplateRow) {
+  const c = getClient();
+  if (!c) return;
+  const name = r.template_name;
+  if (!name) return;
+  if (!confirm(`Ausgabe-Zähler für „${name}" wirklich auf 0 zurücksetzen? Die Box übernimmt das beim nächsten Sync (~30 s).`)) return;
+  const next = { ...dispensed.value };
+  delete next[name];
+  const { error } = await c.from('devices').update({
+    dispensed: next,
+    dispensed_reset_at: new Date().toISOString(),
+  }).eq('id', props.id);
+  if (error) { r._resetMsg = 'Fehler: ' + error.message; return; }
+  dispensed.value = next;
+  r._resetMsg = 'Zähler zurückgesetzt ✓ (Box übernimmt in ~30 s)';
+}
+
 // Codes direkt für einen Preis (dessen Kategorie) in den Pool laden.
 async function addCodesForRow(r: DeviceTemplateRow) {
   const c = getClient();
@@ -740,18 +761,31 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
         </label>
 
         <!-- Statischer Code -->
-        <div v-else-if="r.reward_type === 'static'" class="grid gap-3 mt-3 sm:grid-cols-3">
-          <div>
-            <label class="label">Static-Code (optional)</label>
-            <input v-model="r.static_code" class="input" placeholder="fester Code (im Layout als Barcode)" />
+        <div v-else-if="r.reward_type === 'static'" class="mt-3">
+          <div class="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label class="label">Static-Code (optional)</label>
+              <input v-model="r.static_code" class="input" placeholder="fester Code (im Layout als Barcode)" />
+            </div>
+            <div>
+              <label class="label">Max gesamt</label>
+              <input v-model.number="r.total_limit" type="number" class="input" placeholder="∞" />
+            </div>
+            <div>
+              <label class="label">Ausgegeben / Rest</label>
+              <div class="input tabular-nums text-slate-400">{{ dispensedFor(r) }} / {{ remainingFor(r) }}</div>
+            </div>
           </div>
-          <div>
-            <label class="label">Max gesamt</label>
-            <input v-model.number="r.total_limit" type="number" class="input" placeholder="∞" />
-          </div>
-          <div>
-            <label class="label">Ausgegeben / Rest</label>
-            <div class="input tabular-nums text-slate-400">{{ dispensedFor(r) }} / {{ remainingFor(r) }}</div>
+          <div class="flex items-center gap-3 mt-2 flex-wrap">
+            <button
+              class="btn btn-ghost text-xs"
+              :disabled="dispensedFor(r) === 0"
+              title="Ausgabe-Zähler auf 0 setzen (z. B. nach dem Testen)"
+              @click="resetCounter(r)"
+            >
+              Zähler zurücksetzen
+            </button>
+            <span class="text-sm text-slate-400">{{ r._resetMsg }}</span>
           </div>
         </div>
 

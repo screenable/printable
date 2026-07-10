@@ -37,10 +37,15 @@ export class SyncService {
   desiredVersion?: string;
   /** Zuletzt verarbeitete Neustart-Anforderung (persistiert gegen Loops). */
   private reboot: JsonStore<{ lastHandled: string | null }>;
+  /** Zuletzt verarbeiteter Zähler-Reset (persistiert, damit er nur einmal greift). */
+  private dispenseReset: JsonStore<{ lastHandled: string | null }>;
 
   constructor(deps: SyncServiceDeps) {
     this.log = deps.log;
     this.reboot = new JsonStore(join(CONFIG.DATA_DIR, 'reboot.json'), { lastHandled: null });
+    this.dispenseReset = new JsonStore(join(CONFIG.DATA_DIR, 'dispense-reset.json'), {
+      lastHandled: null,
+    });
   }
 
   /** Führt einen kompletten Sync-Zyklus aus. */
@@ -69,15 +74,26 @@ export class SyncService {
     try {
       const { data, error } = await supabase
         .from('devices')
-        .select('config, desired_version, dispensed, restart_requested_at')
+        .select('config, desired_version, dispensed, dispensed_reset_at, restart_requested_at')
         .eq('id', CONFIG.DEVICE_ID)
         .single();
       if (error) throw error;
       if (data) {
         configService.apply(data.config as PartialDeviceConfig);
         this.desiredVersion = data.desired_version ?? undefined;
-        // Gesamt-Zähler vom Backend übernehmen (robust gegen Re-Image).
-        if (data.dispensed) voucherStore.seedTotals(data.dispensed as Record<string, number>);
+        // Gesamt-Zähler vom Backend übernehmen. Normalfall: nur hochzählen (robust
+        // gegen Re-Image). Nach einem Konsolen-Reset (neuerer dispensed_reset_at)
+        // die gemeldeten Zähler einmalig exakt übernehmen – so wirkt das
+        // Zurücksetzen auch lokal, auch für statische Codes.
+        if (data.dispensed) {
+          const dispensed = data.dispensed as Record<string, number>;
+          if (this.consumeResetSignal(data.dispensed_reset_at ?? null)) {
+            voucherStore.setTotals(dispensed);
+            this.log.info('sync: dispense counters reset from console');
+          } else {
+            voucherStore.seedTotals(dispensed);
+          }
+        }
         this.checkReboot(data.restart_requested_at ?? null);
       }
     } catch (err) {
@@ -96,6 +112,18 @@ export class SyncService {
     this.log.warn({ requestedAt }, 'Fern-Neustart angefordert – Dienst wird neu gestartet');
     this.reboot.set({ lastHandled: requestedAt });
     process.exit(0);
+  }
+
+  /**
+   * Zähler-Reset aus der Konsole: Ist dispensed_reset_at neuer als der zuletzt
+   * verarbeitete Wert, wird er (persistent) gemerkt und true zurückgegeben – so
+   * greift der Reset genau einmal je Anforderung und nicht bei jedem Sync erneut.
+   */
+  private consumeResetSignal(resetAt: string | null): boolean {
+    if (!resetAt) return false;
+    if (this.dispenseReset.get().lastHandled === resetAt) return false;
+    this.dispenseReset.set({ lastHandled: resetAt });
+    return true;
   }
 
   async pullTemplates(): Promise<void> {
