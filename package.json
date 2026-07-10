@@ -39,7 +39,7 @@
     "fastify": "^5.2.0",
     "fastify-plugin": "^5.0.1",
     "play-sound": "^1.1.6",
-    "zod": "^4.0.14"
+    "zod": "^4.4.3"
   },
   "optionalDependencies": {
     "@iiot2k/gpiox": "^3.0.6",
