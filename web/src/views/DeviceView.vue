@@ -72,13 +72,21 @@ function poolFor(cat: string | null) {
   return (cat && stock.value[cat]) || { available: 0, reserved: 0, claimed: 0 };
 }
 
+// Noch nicht eingelöste Codes = frei im Pool (available) + bereits an eine Box
+// reserviert, aber noch nicht ausgegeben (reserved). Beide sind aus Betreiber-
+// Sicht "frei/verfügbar" – erst mit dem Einlösen werden sie zu "eingelöst".
+function freeFor(cat: string | null): number {
+  const p = poolFor(cat);
+  return p.available + p.reserved;
+}
+
 function dispensedFor(r: DeviceTemplateRow): number {
   if (r.reward_type === 'unique') return poolFor(r.voucher_category).claimed;
   return dispensed.value[r.template_name ?? ''] ?? 0;
 }
 
 function remainingFor(r: DeviceTemplateRow): string {
-  if (r.reward_type === 'unique') return String(poolFor(r.voucher_category).available);
+  if (r.reward_type === 'unique') return String(freeFor(r.voucher_category));
   if (r.total_limit != null) return String(Math.max(0, r.total_limit - dispensedFor(r)));
   return '∞';
 }
@@ -86,7 +94,7 @@ function remainingFor(r: DeviceTemplateRow): string {
 function statusFor(r: DeviceTemplateRow): { text: string; cls: string } {
   if (r.enabled === false) return { text: 'Gesperrt', cls: 'pill' };
   if (r.reward_type === 'unique') {
-    return poolFor(r.voucher_category).available > 0
+    return freeFor(r.voucher_category) > 0
       ? { text: 'Aktiv', cls: 'pill pill-ok' }
       : { text: 'Pool leer', cls: 'pill pill-warn' };
   }
@@ -140,7 +148,7 @@ function warningsFor(r: DeviceTemplateRow): string[] {
       const pool = poolFor(r.voucher_category);
       if (pool.available + pool.claimed + pool.reserved === 0) {
         w.push('Noch keine Codes im Pool für diese Kategorie.');
-      } else if (pool.available === 0) {
+      } else if (pool.available + pool.reserved === 0) {
         w.push('Pool leer – aktuell wird stattdessen der Trost-Preis gedruckt.');
       }
     }
@@ -497,9 +505,22 @@ async function addCodesForRow(r: DeviceTemplateRow) {
   const codes = (r._newCodes || '').split('\n').map(s => s.trim()).filter(Boolean);
   if (!cat) { r._codesMsg = 'Erst eine Kategorie vergeben.'; return; }
   if (!codes.length) { r._codesMsg = 'Keine Codes eingegeben.'; return; }
-  const { error } = await c.from('voucher_pool').upsert(codes.map(code => ({ code, category: cat })), { onConflict: 'code', ignoreDuplicates: true });
-  r._codesMsg = error ? 'Fehler: ' + error.message : `${codes.length} Codes geladen ✓`;
-  if (!error) { r._newCodes = ''; loadStock(); }
+  // Doppelte Eingaben schon lokal entfernen, damit die Zählung stimmt.
+  const unique = [...new Set(codes)];
+  const { data: inserted, error } = await c
+    .from('voucher_pool')
+    .upsert(unique.map(code => ({ code, category: cat })), { onConflict: 'code', ignoreDuplicates: true })
+    .select('code');
+  if (error) { r._codesMsg = 'Fehler: ' + error.message; return; }
+  // Mit ignoreDuplicates liefert Supabase nur die tatsächlich neu eingefügten
+  // Zeilen zurück – bereits vorhandene Codes werden nicht mitgezählt.
+  const added = inserted?.length ?? 0;
+  const skipped = codes.length - added;
+  r._codesMsg = skipped > 0
+    ? `${added} Codes geladen ✓ (${skipped} bereits vorhanden, übersprungen)`
+    : `${added} Codes geladen ✓`;
+  r._newCodes = '';
+  loadStock();
 }
 
 onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
@@ -653,7 +674,7 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
             <div>
               <label class="label">Bestand</label>
               <div class="input tabular-nums text-slate-400">
-                {{ poolFor(r.voucher_category).available }} frei ·
+                {{ freeFor(r.voucher_category) }} frei ·
                 {{ poolFor(r.voucher_category).claimed }} eingelöst
               </div>
             </div>
