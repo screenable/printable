@@ -10,6 +10,10 @@ import type { LocalJob } from './types/dispense.types';
 const POLL_INTERVAL_MS = 200;
 const PRINTER_RETRY_MS = 3000;
 const CONNECT_TIMEOUT_MS = 5000;
+// Obergrenze fürs Laden EINES Bon-Bildes (Cache-Miss = 1 Download mit 8s
+// Timeout, plus optionaler Fallback über node-canvas). Danach wird das Bild
+// übersprungen, damit der Bon garantiert gedruckt wird.
+const IMAGE_TIMEOUT_MS = 12_000;
 
 type PrintResult = 'done' | 'error' | 'unavailable';
 
@@ -26,10 +30,17 @@ export async function startPrintWorker(server: FastifyInstance) {
     return { host, port };
   };
 
-  async function canvasFromUrl(url: string) {
+  async function canvasFromUrl(input: unknown) {
     // Aus dem Offline-Cache laden (Fallback: einmaliger Download). So bleiben
-    // Bon-Bilder auch ohne Internet druckbar.
-    const img = await loadImage(await imageCache.getBuffer(url));
+    // Bon-Bilder auch ohne Internet druckbar. Schlägt der Cache-Pfad fehl
+    // (z. B. beschädigte Cache-Datei, ungewöhnliches TLS/Redirect), fällt der
+    // Druck auf das direkte Laden durch node-canvas zurück – das Verhalten vor
+    // dem Cache. So verschwindet ein Bild nicht still, nur weil unser fetch
+    // scheitert, obwohl loadImage es selbst laden könnte.
+    const img = await loadImage(await imageCache.getBuffer(input)).catch(async err => {
+      if (typeof input === 'string') return loadImage(input);
+      throw err;
+    });
     const canvas = createCanvas(img.width, img.height);
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, img.width, img.height);
@@ -136,7 +147,10 @@ export async function startPrintWorker(server: FastifyInstance) {
             break;
           case 'image': {
             try {
-              const canvas = await canvasFromUrl(el.input);
+              // Hart begrenzen: ein langsames/hängendes Bild darf den Bon nicht
+              // aufhalten. Läuft es in den Timeout, wird das Bild übersprungen
+              // und der restliche Bon trotzdem gedruckt.
+              const canvas = await withTimeout(canvasFromUrl(el.input), IMAGE_TIMEOUT_MS, 'image load');
               bon_data.image(canvas, el.width, el.height, 'atkinson', el.threshold);
             } catch (err) {
               console.error('Fehler beim Laden/Drucken des Bildes:', err);

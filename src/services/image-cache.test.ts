@@ -1,6 +1,6 @@
 import { describe, test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ImageCache } from './image-cache';
@@ -71,10 +71,14 @@ describe('ImageCache', () => {
     await assert.rejects(() => cache.getBuffer('https://example.com/missing.png'));
   });
 
-  test('getBuffer reicht data:-/Nicht-URL-Eingaben ohne Netzwerk durch', async () => {
+  test('getBuffer reicht data:-/Nicht-URL-Eingaben UNVERÄNDERT durch (kein Netzwerk)', async () => {
+    const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA=';
     const calls = stubFetch(() => ({ ok: true, body: Buffer.from('x') }));
-    const buf = await cache.getBuffer('data:image/png;base64,AAAA');
-    assert.ok(buf.length > 0);
+    const out = await cache.getBuffer(dataUri);
+    // Muss der Original-String bleiben, damit loadImage die URI dekodiert.
+    // Buffer.from(dataUri) würde die ASCII-Bytes des Strings liefern -> das
+    // Bild ließe sich nicht mehr dekodieren und fiele still aus dem Bon.
+    assert.equal(out, dataUri);
     assert.equal(calls(), 0);
   });
 
@@ -99,5 +103,17 @@ describe('ImageCache', () => {
   test('warm scheitert nicht, wenn einzelne Downloads fehlschlagen', async () => {
     stubFetch(() => ({ ok: false, status: 404 }));
     await assert.doesNotReject(() => cache.warm(['https://example.com/nope.png']));
+  });
+
+  test('Konstruktor legt kein Verzeichnis an und wirft nicht (boot-sicher)', () => {
+    // ImageCache wird beim Modul-Import erzeugt; ein Wurf hier würde den Boot
+    // abbrechen. Verzeichnis wird erst beim ersten Schreiben angelegt.
+    const base = join(mkdtempSync(join(tmpdir(), 'imgcache-boot-')), 'noch', 'nicht', 'da');
+    let created: ImageCache | undefined;
+    assert.doesNotThrow(() => {
+      created = new ImageCache(base);
+    });
+    assert.equal(existsSync(join(base, 'image-cache')), false);
+    void created;
   });
 });
