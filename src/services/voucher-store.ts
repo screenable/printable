@@ -50,6 +50,25 @@ export class VoucherStore {
     });
   }
 
+  /**
+   * Gleicht den lokalen Pool mit dem Server ab: Entfernt lokale, noch NICHT
+   * ausgegebene Codes, die der Server nicht (mehr) als für diese Box reserviert
+   * führt – z.B. weil sie in der Konsole gelöscht oder wieder freigegeben
+   * wurden. Bereits ausgegebene Codes bleiben unangetastet (auch wenn noch
+   * nicht synchronisiert), damit die Outbox nichts verliert.
+   * @param reservedCodes Codes, die der Server aktuell als reserviert für diese
+   *   Box meldet (Sollbestand).
+   * @returns Anzahl lokal entfernter Codes.
+   */
+  reconcileReserved(reservedCodes: string[]): number {
+    const keep = new Set(reservedCodes);
+    return this.vouchers.update(state => {
+      const before = state.items.length;
+      state.items = state.items.filter(v => v.claimed || keep.has(v.code));
+      return before - state.items.length;
+    });
+  }
+
   /** Anzahl noch verfügbarer (unclaimed) Codes einer Kategorie. */
   remaining(category: string): number {
     return this.vouchers.get().items.filter(v => v.category === category && !v.claimed).length;

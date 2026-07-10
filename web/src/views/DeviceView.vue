@@ -14,6 +14,8 @@ import type {
   ReceiptElement,
   RewardType,
   TemplateRow,
+  VoucherPoolRow,
+  VoucherStatus,
 } from '../lib/types';
 
 const props = defineProps<{ id: string }>();
@@ -57,6 +59,32 @@ const totalWeight = computed(() =>
 const dispensed = ref<Record<string, number>>({});
 const stock = ref<Record<string, { available: number; reserved: number; claimed: number }>>({});
 
+// Code-Verwaltung (aufklappbar je Kategorie): einzelne Codes einsehen,
+// als frei/verbraucht markieren, löschen.
+const poolMgrCat = ref<string | null>(null);
+const poolCodes = ref<VoucherPoolRow[]>([]);
+const poolMgrMsg = ref('');
+const poolMgrLoading = ref(false);
+const poolFilter = ref<'all' | VoucherStatus>('all');
+const POOL_MGR_LIMIT = 2000;
+
+const STATUS_LABEL: Record<VoucherStatus, string> = {
+  available: 'frei',
+  reserved: 'reserviert',
+  claimed: 'eingelöst',
+};
+const STATUS_CLS: Record<VoucherStatus, string> = {
+  available: 'pill pill-ok',
+  reserved: 'pill pill-warn',
+  claimed: 'pill',
+};
+
+const filteredPoolCodes = computed(() =>
+  poolFilter.value === 'all'
+    ? poolCodes.value
+    : poolCodes.value.filter(v => v.status === poolFilter.value),
+);
+
 function slug(s: string): string {
   return s.toLowerCase().trim().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '');
 }
@@ -72,13 +100,21 @@ function poolFor(cat: string | null) {
   return (cat && stock.value[cat]) || { available: 0, reserved: 0, claimed: 0 };
 }
 
+// Noch nicht eingelöste Codes = frei im Pool (available) + bereits an eine Box
+// reserviert, aber noch nicht ausgegeben (reserved). Beide sind aus Betreiber-
+// Sicht "frei/verfügbar" – erst mit dem Einlösen werden sie zu "eingelöst".
+function freeFor(cat: string | null): number {
+  const p = poolFor(cat);
+  return p.available + p.reserved;
+}
+
 function dispensedFor(r: DeviceTemplateRow): number {
   if (r.reward_type === 'unique') return poolFor(r.voucher_category).claimed;
   return dispensed.value[r.template_name ?? ''] ?? 0;
 }
 
 function remainingFor(r: DeviceTemplateRow): string {
-  if (r.reward_type === 'unique') return String(poolFor(r.voucher_category).available);
+  if (r.reward_type === 'unique') return String(freeFor(r.voucher_category));
   if (r.total_limit != null) return String(Math.max(0, r.total_limit - dispensedFor(r)));
   return '∞';
 }
@@ -86,7 +122,7 @@ function remainingFor(r: DeviceTemplateRow): string {
 function statusFor(r: DeviceTemplateRow): { text: string; cls: string } {
   if (r.enabled === false) return { text: 'Gesperrt', cls: 'pill' };
   if (r.reward_type === 'unique') {
-    return poolFor(r.voucher_category).available > 0
+    return freeFor(r.voucher_category) > 0
       ? { text: 'Aktiv', cls: 'pill pill-ok' }
       : { text: 'Pool leer', cls: 'pill pill-warn' };
   }
@@ -140,7 +176,7 @@ function warningsFor(r: DeviceTemplateRow): string[] {
       const pool = poolFor(r.voucher_category);
       if (pool.available + pool.claimed + pool.reserved === 0) {
         w.push('Noch keine Codes im Pool für diese Kategorie.');
-      } else if (pool.available === 0) {
+      } else if (pool.available + pool.reserved === 0) {
         w.push('Pool leer – aktuell wird stattdessen der Trost-Preis gedruckt.');
       }
     }
@@ -497,9 +533,89 @@ async function addCodesForRow(r: DeviceTemplateRow) {
   const codes = (r._newCodes || '').split('\n').map(s => s.trim()).filter(Boolean);
   if (!cat) { r._codesMsg = 'Erst eine Kategorie vergeben.'; return; }
   if (!codes.length) { r._codesMsg = 'Keine Codes eingegeben.'; return; }
-  const { error } = await c.from('voucher_pool').upsert(codes.map(code => ({ code, category: cat })), { onConflict: 'code', ignoreDuplicates: true });
-  r._codesMsg = error ? 'Fehler: ' + error.message : `${codes.length} Codes geladen ✓`;
-  if (!error) { r._newCodes = ''; loadStock(); }
+  // Doppelte Eingaben schon lokal entfernen, damit die Zählung stimmt.
+  const unique = [...new Set(codes)];
+  const { data: inserted, error } = await c
+    .from('voucher_pool')
+    .upsert(unique.map(code => ({ code, category: cat })), { onConflict: 'code', ignoreDuplicates: true })
+    .select('code');
+  if (error) { r._codesMsg = 'Fehler: ' + error.message; return; }
+  // Mit ignoreDuplicates liefert Supabase nur die tatsächlich neu eingefügten
+  // Zeilen zurück – bereits vorhandene Codes werden nicht mitgezählt.
+  const added = inserted?.length ?? 0;
+  const skipped = codes.length - added;
+  r._codesMsg = skipped > 0
+    ? `${added} Codes geladen ✓ (${skipped} bereits vorhanden, übersprungen)`
+    : `${added} Codes geladen ✓`;
+  r._newCodes = '';
+  loadStock();
+  if (poolMgrCat.value === cat) loadPoolCodes();
+}
+
+// ── Einzel-Code-Verwaltung ─────────────────────────────────────────────────
+
+// Panel je Kategorie auf-/zuklappen und die Codes laden.
+async function togglePoolMgr(cat: string | null) {
+  const category = (cat || '').trim();
+  if (!category) return;
+  if (poolMgrCat.value === category) { poolMgrCat.value = null; return; }
+  poolMgrCat.value = category;
+  poolFilter.value = 'all';
+  await loadPoolCodes();
+}
+
+async function loadPoolCodes() {
+  const c = getClient();
+  if (!c || !poolMgrCat.value) return;
+  poolMgrLoading.value = true;
+  const { data, error } = await c
+    .from('voucher_pool')
+    .select('id, code, category, status, device_id, reserved_at, claimed_at')
+    .eq('category', poolMgrCat.value)
+    .order('created_at', { ascending: true })
+    .limit(POOL_MGR_LIMIT);
+  poolMgrLoading.value = false;
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  poolCodes.value = (data as VoucherPoolRow[]) || [];
+  poolMgrMsg.value =
+    poolCodes.value.length >= POOL_MGR_LIMIT
+      ? `Nur die ersten ${POOL_MGR_LIMIT} Codes werden angezeigt.`
+      : '';
+}
+
+// Einen Code auf einen neuen Status setzen. „frei" löst zusätzlich die
+// Box-Zuordnung, damit der Code wieder regulär reserviert werden kann.
+async function setCodeStatus(row: VoucherPoolRow, status: 'available' | 'claimed') {
+  const c = getClient();
+  if (!c) return;
+  const patch =
+    status === 'available'
+      ? { status, device_id: null, reserved_at: null, claimed_at: null }
+      : { status, claimed_at: new Date().toISOString() };
+  const { error } = await c.from('voucher_pool').update(patch).eq('id', row.id);
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  await loadPoolCodes();
+  loadStock();
+}
+
+async function deleteCode(row: VoucherPoolRow) {
+  const c = getClient();
+  if (!c) return;
+  const { error } = await c.from('voucher_pool').delete().eq('id', row.id);
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  await loadPoolCodes();
+  loadStock();
+}
+
+async function deleteAllCodes(cat: string) {
+  const c = getClient();
+  if (!c) return;
+  const n = poolCodes.value.length;
+  if (!confirm(`Wirklich ALLE Codes der Kategorie „${cat}" (${n}) löschen? Das lässt sich nicht rückgängig machen.`)) return;
+  const { error } = await c.from('voucher_pool').delete().eq('category', cat);
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  await loadPoolCodes();
+  loadStock();
 }
 
 onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
@@ -653,16 +769,94 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
             <div>
               <label class="label">Bestand</label>
               <div class="input tabular-nums text-slate-400">
-                {{ poolFor(r.voucher_category).available }} frei ·
+                {{ freeFor(r.voucher_category) }} frei ·
                 {{ poolFor(r.voucher_category).claimed }} eingelöst
               </div>
             </div>
           </div>
           <label class="label">Neue Codes hinzufügen (einer pro Zeile)</label>
           <textarea v-model="r._newCodes" class="input font-mono text-xs min-h-[80px]" :placeholder="'CODE-0001\nCODE-0002'"></textarea>
-          <div class="flex items-center gap-3 mt-2">
+          <div class="flex items-center gap-3 mt-2 flex-wrap">
             <button class="btn" @click="addCodesForRow(r)">Codes in Pool laden</button>
+            <button
+              v-if="(r.voucher_category || '').trim()"
+              class="btn btn-ghost"
+              @click="togglePoolMgr(r.voucher_category)"
+            >
+              {{ poolMgrCat === (r.voucher_category || '').trim() ? 'Verwaltung schließen' : 'Codes verwalten' }}
+            </button>
             <span class="text-sm text-slate-400">{{ r._codesMsg }}</span>
+          </div>
+
+          <!-- Einzel-Code-Verwaltung (einsehen / frei / verbraucht / löschen) -->
+          <div
+            v-if="poolMgrCat === (r.voucher_category || '').trim() && (r.voucher_category || '').trim()"
+            class="mt-3 rounded-lg border border-brand-border p-3"
+          >
+            <div class="flex items-center gap-3 mb-3 flex-wrap">
+              <select v-model="poolFilter" class="input w-auto">
+                <option value="all">Alle ({{ poolCodes.length }})</option>
+                <option value="available">Nur frei</option>
+                <option value="reserved">Nur reserviert</option>
+                <option value="claimed">Nur eingelöst</option>
+              </select>
+              <button class="btn btn-ghost px-3 py-1 text-xs" @click="loadPoolCodes">Aktualisieren</button>
+              <button
+                class="btn btn-ghost px-3 py-1 text-xs text-red-300 ml-auto"
+                :disabled="!poolCodes.length"
+                @click="deleteAllCodes((r.voucher_category || '').trim())"
+              >
+                Alle Codes löschen
+              </button>
+            </div>
+            <span v-if="poolMgrMsg" class="text-sm text-amber-300">{{ poolMgrMsg }}</span>
+
+            <div v-if="poolMgrLoading" class="text-sm text-slate-400">Lade …</div>
+            <div v-else-if="!filteredPoolCodes.length" class="text-sm text-slate-400">Keine Codes.</div>
+            <div v-else class="overflow-x-auto max-h-[360px] overflow-y-auto mt-1">
+              <table class="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th class="th">Code</th>
+                    <th class="th">Status</th>
+                    <th class="th text-right">Aktion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="v in filteredPoolCodes" :key="v.id">
+                    <td class="td font-mono text-xs">{{ v.code }}</td>
+                    <td class="td"><span :class="STATUS_CLS[v.status]">{{ STATUS_LABEL[v.status] }}</span></td>
+                    <td class="td">
+                      <div class="flex items-center gap-1 justify-end">
+                        <button
+                          v-if="v.status !== 'available'"
+                          class="btn btn-ghost px-2 py-0.5 text-xs"
+                          title="Wieder freigeben"
+                          @click="setCodeStatus(v, 'available')"
+                        >
+                          frei
+                        </button>
+                        <button
+                          v-if="v.status !== 'claimed'"
+                          class="btn btn-ghost px-2 py-0.5 text-xs"
+                          title="Als verbraucht markieren"
+                          @click="setCodeStatus(v, 'claimed')"
+                        >
+                          verbraucht
+                        </button>
+                        <button
+                          class="btn btn-ghost px-2 py-0.5 text-xs text-slate-400"
+                          title="Code löschen"
+                          @click="deleteCode(v)"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
