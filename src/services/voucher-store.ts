@@ -169,4 +169,14 @@ export class VoucherStore {
       return null;
     });
   }
+
+  /**
+   * Überschreibt die Gesamt-Zähler exakt mit den gemeldeten Werten – inklusive
+   * Herunterzählen. Nur für den expliziten Zähler-Reset aus der Konsole gedacht
+   * (seedTotals zählt bewusst nie zurück); nicht in der Config gelistete Templates
+   * fallen dabei auf 0 zurück. So wirkt das Zurücksetzen auch für statische Codes.
+   */
+  setTotals(remote: Record<string, number>): void {
+    this.totals.set({ counts: { ...remote } });
+  }
 }

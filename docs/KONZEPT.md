@@ -312,7 +312,7 @@ Template gewählt → Reward-Typ?
 |---|---|---|
 | **Bestandslimit** | „es gibt nur 100 × 50 %-Codes insgesamt" | Ergibt sich **aus der Poolgröße**. Zentral genau 100 Codes generieren; jede Box **reserviert** einen Batch (`status='reserved', device_id`). Ein Einmal-Code liegt physisch auf **genau einer** Box → Summe aller Reservierungen ≤ 100. Globales Limit hält, **selbst wenn alle Boxen offline sind**. |
 | **Tempolimit / Rationierung** | „max. 2 × 50 % pro Tag, gleichmäßig verteilt" | **Lokaler Token-Bucket / Tageszähler** auf dem Pi. Rate wird zentral konfiguriert (`daily_limit` in `device_templates`), Durchsetzung ist rein lokal, Reset um Mitternacht. **Kein Netz nötig.** |
-| **Gesamt-Limit** | „max. 500 × dieser **statische** Barcode insgesamt" | **Lokaler Lebenszeit-Zähler** (`total_limit`), auch für `static`-Codes ohne Pool. Kein Reset. Die Box meldet den Stand zurück (`devices.dispensed`) und übernimmt ihn nach einem Re-Image wieder (kein Zurückzählen). **Kein Netz nötig.** |
+| **Gesamt-Limit** | „max. 500 × dieser **statische** Barcode insgesamt" | **Lokaler Lebenszeit-Zähler** (`total_limit`), auch für `static`-Codes ohne Pool. Die Box meldet den Stand zurück (`devices.dispensed`) und übernimmt ihn nach einem Re-Image wieder (**kein Zurückzählen im Normalbetrieb**). Reset ist explizit aus der Konsole möglich (`dispensed_reset_at`, analog Fern-Neustart) – z. B. nach dem Testen. **Kein Netz nötig.** |
 
 Die meisten realen Fälle sind Kombinationen: Bestands-/Gesamt-Limit (Stückzahl)
 **plus** optional Tempolimit (Pacing, damit der teure Preis nicht in der ersten
