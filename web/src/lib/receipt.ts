@@ -12,6 +12,27 @@ interface Line {
   sizeW?: number;
   sizeH?: number;
   bold?: boolean;
+  src?: string;
+  imgW?: number;
+  imgH?: number;
+}
+
+// Geladene Bilder je URL zwischenspeichern, damit die (synchrone) Vorschau sie
+// beim erneuten Zeichnen sofort hat. 'error' markiert URLs, die nicht geladen
+// werden konnten – dann zeigt die Vorschau einen Platzhalter statt endlos zu laden.
+const imageCache = new Map<string, HTMLImageElement | 'loading' | 'error'>();
+
+function getImage(src: string, onReady: () => void): HTMLImageElement | 'loading' | 'error' {
+  const cached = imageCache.get(src);
+  if (cached) return cached;
+  imageCache.set(src, 'loading');
+  const img = new Image();
+  // Kein crossOrigin: die Vorschau zeichnet nur (liest keine Pixel), so laden
+  // auch Bildserver ohne CORS-Header statt fälschlich als „nicht ladbar“.
+  img.onload = () => { imageCache.set(src, img); onReady(); };
+  img.onerror = () => { imageCache.set(src, 'error'); onReady(); };
+  img.src = src;
+  return 'loading';
 }
 
 export function renderReceipt(
@@ -61,16 +82,40 @@ export function renderReceipt(
       case 'rule': lines.push({ kind: 'rule' }); break;
       case 'qrcode': lines.push({ kind: 'qr', text: fill(String(e.value ?? '')) }); break;
       case 'barcode': lines.push({ kind: 'barcode', text: fill(String(e.value ?? '')) }); break;
-      case 'image': lines.push({ kind: 'image' }); break;
+      case 'image':
+        lines.push({
+          kind: 'image',
+          src: e.input ? fill(String(e.input)) : undefined,
+          imgW: Number(e.width) || undefined,
+          imgH: Number(e.height) || undefined,
+        });
+        break;
       case 'cut': lines.push({ kind: 'cut' }); break;
       default: break;
     }
   }
 
+  const redraw = () => renderReceipt(canvas, elements, sample);
+  const printableW = width - padX * 2;
+
+  // Anzeige-Maße eines Bildes bestimmen (Dots ≈ Preview-Pixel, auf Bonbreite
+  // begrenzt). Höhe folgt dem Seitenverhältnis des geladenen Bildes, sofern
+  // keine feste Höhe gesetzt ist.
+  const imageBox = (l: Line): { w: number; h: number } => {
+    const img = l.src ? getImage(l.src, redraw) : 'error';
+    let w = l.imgW ?? (img instanceof HTMLImageElement ? img.naturalWidth : printableW);
+    if (w > printableW) w = printableW;
+    let h: number;
+    if (l.imgH) h = l.imgH * (w / (l.imgW ?? w));
+    else if (img instanceof HTMLImageElement && img.naturalWidth) h = w * (img.naturalHeight / img.naturalWidth);
+    else h = 90;
+    return { w: Math.round(w), h: Math.round(h) };
+  };
+
   const heights = lines.map(l => {
     if (l.kind === 'qr') return 120;
     if (l.kind === 'barcode') return 60;
-    if (l.kind === 'image') return 90;
+    if (l.kind === 'image') return imageBox(l).h + 12;
     if (l.kind === 'gap' || l.kind === 'rule' || l.kind === 'cut') return lineH;
     return lineH * (l.sizeH || 1);
   });
@@ -116,8 +161,30 @@ export function renderReceipt(
       y += h;
       return;
     }
-    if (l.kind === 'qr' || l.kind === 'barcode' || l.kind === 'image') {
-      const w = l.kind === 'qr' ? 96 : l.kind === 'barcode' ? 200 : 160;
+    if (l.kind === 'image') {
+      const box = imageBox(l);
+      const x = (width - box.w) / 2;
+      const img = l.src ? imageCache.get(l.src) : 'error';
+      if (img instanceof HTMLImageElement) {
+        ctx.drawImage(img, x, y + 6, box.w, box.h);
+      } else {
+        // Platzhalter, solange das Bild lädt oder die URL nicht erreichbar ist.
+        ctx.fillStyle = '#eee';
+        ctx.fillRect(x, y + 6, box.w, box.h);
+        ctx.strokeStyle = '#bbb';
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(x + 0.5, y + 6.5, box.w - 1, box.h - 1);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#999';
+        ctx.font = '11px system-ui';
+        ctx.fillText(img === 'error' ? 'Bild nicht ladbar' : 'Bild lädt …', x + 8, y + box.h / 2 - 2);
+        ctx.fillStyle = '#111';
+      }
+      y += h;
+      return;
+    }
+    if (l.kind === 'qr' || l.kind === 'barcode') {
+      const w = l.kind === 'qr' ? 96 : 200;
       const bh = h - 12;
       const x = (width - w) / 2;
       ctx.fillStyle = '#000';
