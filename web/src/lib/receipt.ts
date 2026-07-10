@@ -1,9 +1,13 @@
 // Bon-Vorschau (80mm Thermodruck-Simulation).
-// Layout-treu (Font A, 42 Zeichen), nicht byte-genau der ESC/POS-Encoder – der
+// Layout-treu (Font A, 48 Zeichen), nicht byte-genau der ESC/POS-Encoder – der
 // Pi rendert dieselbe Element-Liste mit dem echten Encoder.
 import type { ReceiptElement } from './types';
+import { RECEIPT_MAX_WIDTH } from './receipt-image';
 
-const CHARS_PER_LINE = 42;
+// 80-mm-Papier, TM-m30III Font A (12x24 Dots): 576 / 12 = 48 Zeichen pro Zeile.
+// Muss der `columns`-Angabe des echten Encoders (epson-tm-m30iii) entsprechen,
+// damit die Vorschau genauso umbricht wie der Druck.
+const CHARS_PER_LINE = 48;
 
 interface Line {
   kind: 'text' | 'gap' | 'rule' | 'cut' | 'qr' | 'barcode' | 'image';
@@ -15,11 +19,11 @@ interface Line {
   src?: string;
   imgW?: number;
   imgH?: number;
+  qrSize?: number;
 }
 
-// Geladene Bilder je URL zwischenspeichern, damit die (synchrone) Vorschau sie
-// beim erneuten Zeichnen sofort hat. 'error' markiert URLs, die nicht geladen
-// werden konnten – dann zeigt die Vorschau einen Platzhalter statt endlos zu laden.
+// Geladene Bilder je URL zwischenspeichern, damit die Vorschau beim erneuten
+// Zeichnen sofort rendert. 'loading'/'error' steuern Platzhalter.
 const imageCache = new Map<string, HTMLImageElement | 'loading' | 'error'>();
 
 function getImage(src: string, onReady: () => void): HTMLImageElement | 'loading' | 'error' {
@@ -29,10 +33,48 @@ function getImage(src: string, onReady: () => void): HTMLImageElement | 'loading
   const img = new Image();
   // Kein crossOrigin: die Vorschau zeichnet nur (liest keine Pixel), so laden
   // auch Bildserver ohne CORS-Header statt fälschlich als „nicht ladbar“.
-  img.onload = () => { imageCache.set(src, img); onReady(); };
-  img.onerror = () => { imageCache.set(src, 'error'); onReady(); };
+  img.onload = () => {
+    imageCache.set(src, img);
+    onReady();
+  };
+  img.onerror = () => {
+    imageCache.set(src, 'error');
+    onReady();
+  };
   img.src = src;
   return 'loading';
+}
+
+function loadPreviewImage(src: string): Promise<void> {
+  if (!src) return Promise.resolve();
+  const cached = imageCache.get(src);
+  if (cached instanceof HTMLImageElement || cached === 'error' || cached === 'loading') {
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    imageCache.set(src, 'loading');
+    const img = new Image();
+    img.onload = () => {
+      imageCache.set(src, img);
+      resolve();
+    };
+    img.onerror = () => {
+      imageCache.set(src, 'error');
+      resolve();
+    };
+    img.src = src;
+  });
+}
+
+/**
+ * Lädt alle referenzierten Bild-URLs vor, damit die synchrone `renderReceipt`
+ * sie sofort zeichnen kann. Vor jedem Zeichnen aus der View aufrufen.
+ */
+export async function preloadImages(elements: ReceiptElement[]): Promise<void> {
+  const urls = elements
+    .filter(e => e.type === 'image' && typeof e.input === 'string' && e.input)
+    .map(e => e.input as string);
+  await Promise.all(urls.map(loadPreviewImage));
 }
 
 export function renderReceipt(
@@ -80,7 +122,7 @@ export function renderReceipt(
         for (let i = 0; i < (e.count ?? 1); i++) lines.push({ kind: 'gap' });
         break;
       case 'rule': lines.push({ kind: 'rule' }); break;
-      case 'qrcode': lines.push({ kind: 'qr', text: fill(String(e.value ?? '')) }); break;
+      case 'qrcode': lines.push({ kind: 'qr', text: fill(String(e.value ?? '')), qrSize: Number((e.options as { size?: number } | undefined)?.size) || 6 }); break;
       case 'barcode': lines.push({ kind: 'barcode', text: fill(String(e.value ?? '')) }); break;
       case 'image':
         lines.push({
@@ -96,26 +138,33 @@ export function renderReceipt(
   }
 
   const redraw = () => renderReceipt(canvas, elements, sample);
-  const printableW = width - padX * 2;
-
-  // Anzeige-Maße eines Bildes bestimmen (Dots ≈ Preview-Pixel, auf Bonbreite
-  // begrenzt). Höhe folgt dem Seitenverhältnis des geladenen Bildes, sofern
-  // keine feste Höhe gesetzt ist.
-  const imageBox = (l: Line): { w: number; h: number } => {
+  const contentW = width - padX * 2;
+  // Vorschau-Pixel pro Drucker-Dot: die volle Bonbreite (576 Dots) füllt die
+  // Inhaltsbreite der Vorschau.
+  const dotToPx = contentW / RECEIPT_MAX_WIDTH;
+  const imageDisplaySize = (l: Line): { w: number; h: number } => {
     const img = l.src ? getImage(l.src, redraw) : 'error';
-    let w = l.imgW ?? (img instanceof HTMLImageElement ? img.naturalWidth : printableW);
-    if (w > printableW) w = printableW;
-    let h: number;
-    if (l.imgH) h = l.imgH * (w / (l.imgW ?? w));
-    else if (img instanceof HTMLImageElement && img.naturalWidth) h = w * (img.naturalHeight / img.naturalWidth);
-    else h = 90;
-    return { w: Math.round(w), h: Math.round(h) };
+    // Maße aus dem Element (Drucker-Dots) in Vorschau-Pixel; nie breiter als Inhalt.
+    const w = Math.min(contentW, (l.imgW || RECEIPT_MAX_WIDTH) * dotToPx);
+    const aspect =
+      img instanceof HTMLImageElement && img.naturalWidth
+        ? img.naturalHeight / img.naturalWidth
+        : l.imgW
+          ? (l.imgH || 0) / l.imgW
+          : 0.4;
+    let h = w * aspect;
+    if (!h) h = 90;
+    return { w, h };
   };
 
+  // QR-Vorschau als Quadrat, dessen Kantenlänge mit der eingestellten Größe
+  // (1–8) wächst – gibt ein Gefühl fürs Druckbild (size 6 ≈ 120 px).
+  const qrSide = (l: Line) => Math.min(8, Math.max(1, l.qrSize || 6)) * 16 + 24;
+
   const heights = lines.map(l => {
-    if (l.kind === 'qr') return 120;
+    if (l.kind === 'qr') return qrSide(l);
     if (l.kind === 'barcode') return 60;
-    if (l.kind === 'image') return imageBox(l).h + 12;
+    if (l.kind === 'image') return imageDisplaySize(l).h + 12;
     if (l.kind === 'gap' || l.kind === 'rule' || l.kind === 'cut') return lineH;
     return lineH * (l.sizeH || 1);
   });
@@ -124,7 +173,9 @@ export function renderReceipt(
   canvas.width = width * scale;
   canvas.height = totalH * scale;
   canvas.style.width = width + 'px';
-  canvas.style.height = totalH + 'px';
+  // Höhe proportional lassen: bei schmalem Panel begrenzt `max-w-full` die
+  // Breite; mit fixer Pixel-Höhe würde die Vorschau sonst horizontal gestaucht.
+  canvas.style.height = 'auto';
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, width, totalH);
@@ -162,29 +213,30 @@ export function renderReceipt(
       return;
     }
     if (l.kind === 'image') {
-      const box = imageBox(l);
-      const x = (width - box.w) / 2;
+      const { w, h: ih } = imageDisplaySize(l);
+      const x = (width - w) / 2;
       const img = l.src ? imageCache.get(l.src) : 'error';
       if (img instanceof HTMLImageElement) {
-        ctx.drawImage(img, x, y + 6, box.w, box.h);
+        ctx.drawImage(img, x, y + 6, w, ih);
       } else {
         // Platzhalter, solange das Bild lädt oder die URL nicht erreichbar ist.
-        ctx.fillStyle = '#eee';
-        ctx.fillRect(x, y + 6, box.w, box.h);
+        ctx.fillStyle = '#e5e7eb';
+        ctx.fillRect(x, y + 6, w, ih);
         ctx.strokeStyle = '#bbb';
         ctx.setLineDash([4, 3]);
-        ctx.strokeRect(x + 0.5, y + 6.5, box.w - 1, box.h - 1);
+        ctx.strokeRect(x + 0.5, y + 6.5, w - 1, ih - 1);
         ctx.setLineDash([]);
-        ctx.fillStyle = '#999';
+        ctx.fillStyle = '#6b7280';
         ctx.font = '11px system-ui';
-        ctx.fillText(img === 'error' ? 'Bild nicht ladbar' : 'Bild lädt …', x + 8, y + box.h / 2 - 2);
+        ctx.fillText(img === 'error' ? 'Bild nicht ladbar' : 'Bild lädt …', x + 8, y + ih / 2);
         ctx.fillStyle = '#111';
       }
       y += h;
       return;
     }
     if (l.kind === 'qr' || l.kind === 'barcode') {
-      const w = l.kind === 'qr' ? 96 : 200;
+      // QR quadratisch (Kantenlänge = Zeilenhöhe), Barcode breit/flach.
+      const w = l.kind === 'qr' ? h - 12 : 200;
       const bh = h - 12;
       const x = (width - w) / 2;
       ctx.fillStyle = '#000';
