@@ -24,12 +24,32 @@ function isCacheableUrl(input: unknown): input is string {
   return typeof input === 'string' && /^https?:\/\//i.test(input);
 }
 
+/**
+ * `loadImage` (node-canvas) akzeptiert URL-Strings, data:-URIs, Dateipfade und
+ * Buffer. `getBuffer` liefert daher eine Vereinigung: für gecachte http-Bilder
+ * einen Buffer, für alles andere die unveränderte Eingabe.
+ */
+export type ImageSource = Buffer | string;
+
 export class ImageCache {
   private readonly dir: string;
+  private ensured = false;
 
   constructor(dataDir: string = CONFIG.DATA_DIR) {
     this.dir = join(dataDir, 'image-cache');
+  }
+
+  /**
+   * Legt das Cache-Verzeichnis bei Bedarf an – bewusst NICHT im Konstruktor.
+   * `imageCache` wird beim Modul-Import (app-context) erzeugt, also lange bevor
+   * `main()` überhaupt läuft. Ein synchroner `mkdirSync`-Wurf im Konstruktor
+   * würde dort den GESAMTEN Boot abbrechen – die Box druckt dann gar nichts
+   * mehr. Deshalb lazy: erst kurz vor dem ersten Schreiben.
+   */
+  private ensureDir(): void {
+    if (this.ensured) return;
     mkdirSync(this.dir, { recursive: true });
+    this.ensured = true;
   }
 
   private pathFor(url: string): string {
@@ -45,6 +65,7 @@ export class ImageCache {
   }
 
   private write(url: string, data: Buffer): void {
+    this.ensureDir();
     const target = this.pathFor(url);
     const tmp = `${target}.tmp`;
     writeFileSync(tmp, data);
@@ -58,16 +79,20 @@ export class ImageCache {
   }
 
   /**
-   * Liefert die Bilddaten – bevorzugt aus dem lokalen Cache (offline-fest).
+   * Liefert die Bildquelle – bevorzugt aus dem lokalen Cache (offline-fest).
    * Fehlt die Kopie, wird sie einmalig geladen und persistiert. Schlägt der
    * Download fehl, aber eine (evtl. veraltete) Kopie liegt vor, wird diese
    * zurückgegeben. Erst wenn beides fehlt, wirft die Methode.
    *
-   * Nicht-cachebare Eingaben (data:-URI o. Ä.) werden als Buffer durchgereicht.
+   * Nicht-cachebare Eingaben (data:-URI, Dateipfad o. Ä.) werden UNVERÄNDERT
+   * als String durchgereicht – `loadImage` versteht sie direkt. Sie dürfen
+   * NICHT durch `Buffer.from()` laufen: das würde z. B. eine data:-URI in die
+   * ASCII-Bytes des URI-Strings verwandeln statt das Bild zu dekodieren, und
+   * das Bild verschwände still aus dem Bon.
    */
-  async getBuffer(input: unknown): Promise<Buffer> {
+  async getBuffer(input: unknown): Promise<ImageSource> {
     if (!isCacheableUrl(input)) {
-      if (typeof input === 'string') return Buffer.from(input);
+      if (typeof input === 'string') return input;
       throw new Error('Unbekannte Bild-Eingabe (kein URL-String)');
     }
     if (this.has(input)) return this.read(input);
