@@ -73,6 +73,11 @@ export async function startPrintWorker(server: FastifyInstance) {
       printerModel: model as 'epson-tm-m30iii',
     });
     bon_data.initialize();
+    // Codepage fest auf PC858 setzen. Ohne das bleibt der Encoder auf cp437
+    // (kein €-Zeichen) und ersetzt € durch '?'. PC858 (Epson-Codepage 19) ist
+    // im ASCII-Bereich identisch zu cp437, enthält aber zusätzlich € (0xD5)
+    // sowie die deutschen Umlaute (ä/ö/ü/ß …) – die richtige Wahl für DE-Bons.
+    bon_data.codepage('cp858');
 
     jobStore.setStatus(job.id, 'printing');
 
