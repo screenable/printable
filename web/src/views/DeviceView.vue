@@ -14,6 +14,8 @@ import type {
   ReceiptElement,
   RewardType,
   TemplateRow,
+  VoucherPoolRow,
+  VoucherStatus,
 } from '../lib/types';
 
 const props = defineProps<{ id: string }>();
@@ -56,6 +58,32 @@ const totalWeight = computed(() =>
 // Von der Box gemeldete Ausgabe-Zähler + Pool-Bestände.
 const dispensed = ref<Record<string, number>>({});
 const stock = ref<Record<string, { available: number; reserved: number; claimed: number }>>({});
+
+// Code-Verwaltung (aufklappbar je Kategorie): einzelne Codes einsehen,
+// als frei/verbraucht markieren, löschen.
+const poolMgrCat = ref<string | null>(null);
+const poolCodes = ref<VoucherPoolRow[]>([]);
+const poolMgrMsg = ref('');
+const poolMgrLoading = ref(false);
+const poolFilter = ref<'all' | VoucherStatus>('all');
+const POOL_MGR_LIMIT = 2000;
+
+const STATUS_LABEL: Record<VoucherStatus, string> = {
+  available: 'frei',
+  reserved: 'reserviert',
+  claimed: 'eingelöst',
+};
+const STATUS_CLS: Record<VoucherStatus, string> = {
+  available: 'pill pill-ok',
+  reserved: 'pill pill-warn',
+  claimed: 'pill',
+};
+
+const filteredPoolCodes = computed(() =>
+  poolFilter.value === 'all'
+    ? poolCodes.value
+    : poolCodes.value.filter(v => v.status === poolFilter.value),
+);
 
 function slug(s: string): string {
   return s.toLowerCase().trim().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '');
@@ -521,6 +549,73 @@ async function addCodesForRow(r: DeviceTemplateRow) {
     : `${added} Codes geladen ✓`;
   r._newCodes = '';
   loadStock();
+  if (poolMgrCat.value === cat) loadPoolCodes();
+}
+
+// ── Einzel-Code-Verwaltung ─────────────────────────────────────────────────
+
+// Panel je Kategorie auf-/zuklappen und die Codes laden.
+async function togglePoolMgr(cat: string | null) {
+  const category = (cat || '').trim();
+  if (!category) return;
+  if (poolMgrCat.value === category) { poolMgrCat.value = null; return; }
+  poolMgrCat.value = category;
+  poolFilter.value = 'all';
+  await loadPoolCodes();
+}
+
+async function loadPoolCodes() {
+  const c = getClient();
+  if (!c || !poolMgrCat.value) return;
+  poolMgrLoading.value = true;
+  const { data, error } = await c
+    .from('voucher_pool')
+    .select('id, code, category, status, device_id, reserved_at, claimed_at')
+    .eq('category', poolMgrCat.value)
+    .order('created_at', { ascending: true })
+    .limit(POOL_MGR_LIMIT);
+  poolMgrLoading.value = false;
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  poolCodes.value = (data as VoucherPoolRow[]) || [];
+  poolMgrMsg.value =
+    poolCodes.value.length >= POOL_MGR_LIMIT
+      ? `Nur die ersten ${POOL_MGR_LIMIT} Codes werden angezeigt.`
+      : '';
+}
+
+// Einen Code auf einen neuen Status setzen. „frei" löst zusätzlich die
+// Box-Zuordnung, damit der Code wieder regulär reserviert werden kann.
+async function setCodeStatus(row: VoucherPoolRow, status: 'available' | 'claimed') {
+  const c = getClient();
+  if (!c) return;
+  const patch =
+    status === 'available'
+      ? { status, device_id: null, reserved_at: null, claimed_at: null }
+      : { status, claimed_at: new Date().toISOString() };
+  const { error } = await c.from('voucher_pool').update(patch).eq('id', row.id);
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  await loadPoolCodes();
+  loadStock();
+}
+
+async function deleteCode(row: VoucherPoolRow) {
+  const c = getClient();
+  if (!c) return;
+  const { error } = await c.from('voucher_pool').delete().eq('id', row.id);
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  await loadPoolCodes();
+  loadStock();
+}
+
+async function deleteAllCodes(cat: string) {
+  const c = getClient();
+  if (!c) return;
+  const n = poolCodes.value.length;
+  if (!confirm(`Wirklich ALLE Codes der Kategorie „${cat}" (${n}) löschen? Das lässt sich nicht rückgängig machen.`)) return;
+  const { error } = await c.from('voucher_pool').delete().eq('category', cat);
+  if (error) { poolMgrMsg.value = 'Fehler: ' + error.message; return; }
+  await loadPoolCodes();
+  loadStock();
 }
 
 onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
@@ -681,9 +776,87 @@ onMounted(() => { loadDevice(); loadMix(); loadStock(); loadReport(); });
           </div>
           <label class="label">Neue Codes hinzufügen (einer pro Zeile)</label>
           <textarea v-model="r._newCodes" class="input font-mono text-xs min-h-[80px]" :placeholder="'CODE-0001\nCODE-0002'"></textarea>
-          <div class="flex items-center gap-3 mt-2">
+          <div class="flex items-center gap-3 mt-2 flex-wrap">
             <button class="btn" @click="addCodesForRow(r)">Codes in Pool laden</button>
+            <button
+              v-if="(r.voucher_category || '').trim()"
+              class="btn btn-ghost"
+              @click="togglePoolMgr(r.voucher_category)"
+            >
+              {{ poolMgrCat === (r.voucher_category || '').trim() ? 'Verwaltung schließen' : 'Codes verwalten' }}
+            </button>
             <span class="text-sm text-slate-400">{{ r._codesMsg }}</span>
+          </div>
+
+          <!-- Einzel-Code-Verwaltung (einsehen / frei / verbraucht / löschen) -->
+          <div
+            v-if="poolMgrCat === (r.voucher_category || '').trim() && (r.voucher_category || '').trim()"
+            class="mt-3 rounded-lg border border-brand-border p-3"
+          >
+            <div class="flex items-center gap-3 mb-3 flex-wrap">
+              <select v-model="poolFilter" class="input w-auto">
+                <option value="all">Alle ({{ poolCodes.length }})</option>
+                <option value="available">Nur frei</option>
+                <option value="reserved">Nur reserviert</option>
+                <option value="claimed">Nur eingelöst</option>
+              </select>
+              <button class="btn btn-ghost px-3 py-1 text-xs" @click="loadPoolCodes">Aktualisieren</button>
+              <button
+                class="btn btn-ghost px-3 py-1 text-xs text-red-300 ml-auto"
+                :disabled="!poolCodes.length"
+                @click="deleteAllCodes((r.voucher_category || '').trim())"
+              >
+                Alle Codes löschen
+              </button>
+            </div>
+            <span v-if="poolMgrMsg" class="text-sm text-amber-300">{{ poolMgrMsg }}</span>
+
+            <div v-if="poolMgrLoading" class="text-sm text-slate-400">Lade …</div>
+            <div v-else-if="!filteredPoolCodes.length" class="text-sm text-slate-400">Keine Codes.</div>
+            <div v-else class="overflow-x-auto max-h-[360px] overflow-y-auto mt-1">
+              <table class="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th class="th">Code</th>
+                    <th class="th">Status</th>
+                    <th class="th text-right">Aktion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="v in filteredPoolCodes" :key="v.id">
+                    <td class="td font-mono text-xs">{{ v.code }}</td>
+                    <td class="td"><span :class="STATUS_CLS[v.status]">{{ STATUS_LABEL[v.status] }}</span></td>
+                    <td class="td">
+                      <div class="flex items-center gap-1 justify-end">
+                        <button
+                          v-if="v.status !== 'available'"
+                          class="btn btn-ghost px-2 py-0.5 text-xs"
+                          title="Wieder freigeben"
+                          @click="setCodeStatus(v, 'available')"
+                        >
+                          frei
+                        </button>
+                        <button
+                          v-if="v.status !== 'claimed'"
+                          class="btn btn-ghost px-2 py-0.5 text-xs"
+                          title="Als verbraucht markieren"
+                          @click="setCodeStatus(v, 'claimed')"
+                        >
+                          verbraucht
+                        </button>
+                        <button
+                          class="btn btn-ghost px-2 py-0.5 text-xs text-slate-400"
+                          title="Code löschen"
+                          @click="deleteCode(v)"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

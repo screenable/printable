@@ -26,6 +26,18 @@ export interface TemplateRow {
   template: ReceiptTemplate;
 }
 
+export type VoucherStatus = 'available' | 'reserved' | 'claimed';
+
+export interface VoucherPoolRow {
+  id: number;
+  code: string;
+  category: string;
+  status: VoucherStatus;
+  device_id: string | null;
+  reserved_at: string | null;
+  claimed_at: string | null;
+}
+
 export interface DeviceTemplateRow {
   id?: number;
   device_id: string;
