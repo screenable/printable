@@ -17,7 +17,7 @@
   "author": "Niels Van den broeck",
   "license": "MIT",
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
+    "@biomejs/biome": "^2.5.2",
     "@types/node": "^24.7.2",
     "@types/play-sound": "^1.1.2",
     "@types/supertest": "^6.0.3",
