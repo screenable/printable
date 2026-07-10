@@ -48,6 +48,7 @@ export class SyncService {
     await this.pullConfig();
     await this.pullTemplates();
     await this.pullVouchers();
+    await this.reconcileVouchers();
     await this.pushOutbox();
     await this.pushHeartbeat();
   }
@@ -176,6 +177,33 @@ export class SyncService {
       } catch (err) {
         this.log.warn({ err, category }, 'sync: reserveVouchers failed');
       }
+    }
+  }
+
+  /**
+   * Gleicht den lokalen Pool mit dem Server ab: Codes, die zentral gelöscht
+   * oder wieder freigegeben wurden (also nicht mehr als „reserviert für diese
+   * Box" geführt werden), werden lokal entfernt – sofern sie noch nicht
+   * ausgegeben wurden. So wirken Pool-Korrekturen aus der Konsole, sobald die
+   * Box wieder online ist. Läuft NUR bei erfolgreicher Abfrage: Ist die Box
+   * offline (Fehler/Timeout), bleibt der lokale Pool unangetastet.
+   */
+  async reconcileVouchers(): Promise<void> {
+    try {
+      const { data, error } = await supabase
+        .from('voucher_pool')
+        .select('code')
+        .eq('device_id', CONFIG.DEVICE_ID)
+        .eq('status', 'reserved')
+        .limit(10000);
+      if (error) throw error;
+      const reserved = ((data as { code: string }[]) ?? []).map(r => r.code);
+      const removed = voucherStore.reconcileReserved(reserved);
+      if (removed > 0) {
+        this.log.info({ removed }, 'sync: reconciled voucher pool – dropped stale local codes');
+      }
+    } catch (err) {
+      this.log.warn({ err }, 'sync: reconcileVouchers failed – keeping local pool');
     }
   }
 

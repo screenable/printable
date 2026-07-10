@@ -47,6 +47,25 @@ describe('VoucherStore – Bestand', () => {
     store.markSynced([code]);
     assert.equal(store.unsyncedClaims().length, 0);
   });
+
+  test('reconcileReserved drops unclaimed local codes the server no longer reserves', () => {
+    store.loadBatch('cat', ['A', 'B', 'C']);
+    // Server führt nur noch A und B als reserviert – C wurde zentral gelöscht/freigegeben.
+    const removed = store.reconcileReserved(['A', 'B']);
+    assert.equal(removed, 1);
+    assert.equal(store.remaining('cat'), 2);
+    assert.equal(store.claimNext('cat') !== 'C', true);
+  });
+
+  test('reconcileReserved keeps claimed codes even if the server no longer lists them', () => {
+    store.loadBatch('cat', ['A', 'B']);
+    const code = store.claimNext('cat'); // z.B. A, lokal ausgegeben, evtl. noch nicht synchronisiert
+    assert.ok(code);
+    // Server meldet keinerlei reservierte Codes mehr für die Box.
+    const removed = store.reconcileReserved([]);
+    assert.equal(removed, 1); // nur der unclaimed Code wird entfernt
+    assert.equal(store.unsyncedClaims().length, 1); // ausgegebener Code bleibt in der Outbox
+  });
 });
 
 describe('VoucherStore – Tageslimit', () => {

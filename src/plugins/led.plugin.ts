@@ -32,7 +32,15 @@ class WLEDClient {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
-      console.error('WLED API error:', error);
+      // Nur eine kompakte Zeile loggen. Das komplette axios-Fehlerobjekt
+      // (Request/Socket, ~100 Zeilen) würde sonst bei jedem WLED-Ausfall das
+      // journald-Log fluten und echte Druck-/Button-Meldungen verdrängen.
+      const msg = axios.isAxiosError(error)
+        ? (error.code ?? error.message)
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      console.error(`WLED API error (${this.baseUrl}): ${msg}`);
     }
   }
 

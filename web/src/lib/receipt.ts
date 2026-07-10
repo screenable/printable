@@ -22,23 +22,46 @@ interface Line {
   qrSize?: number;
 }
 
-// Bild-Cache für die Vorschau. Bilder laden asynchron; sobald ein Bild da ist,
-// löst `preloadImages` das Promise auf und die View zeichnet neu.
-const imgCache = new Map<string, HTMLImageElement>();
+// Geladene Bilder je URL zwischenspeichern, damit die Vorschau beim erneuten
+// Zeichnen sofort rendert. 'loading'/'error' steuern Platzhalter.
+const imageCache = new Map<string, HTMLImageElement | 'loading' | 'error'>();
+
+function getImage(src: string, onReady: () => void): HTMLImageElement | 'loading' | 'error' {
+  const cached = imageCache.get(src);
+  if (cached) return cached;
+  imageCache.set(src, 'loading');
+  const img = new Image();
+  // Kein crossOrigin: die Vorschau zeichnet nur (liest keine Pixel), so laden
+  // auch Bildserver ohne CORS-Header statt fälschlich als „nicht ladbar“.
+  img.onload = () => {
+    imageCache.set(src, img);
+    onReady();
+  };
+  img.onerror = () => {
+    imageCache.set(src, 'error');
+    onReady();
+  };
+  img.src = src;
+  return 'loading';
+}
 
 function loadPreviewImage(src: string): Promise<void> {
-  if (!src || imgCache.has(src)) return Promise.resolve();
+  if (!src) return Promise.resolve();
+  const cached = imageCache.get(src);
+  if (cached instanceof HTMLImageElement || cached === 'error' || cached === 'loading') {
+    return Promise.resolve();
+  }
   return new Promise(resolve => {
+    imageCache.set(src, 'loading');
     const img = new Image();
-    // Bewusst OHNE crossOrigin: die Vorschau liest die Canvas-Pixel nie zurück,
-    // also ist Tainting egal. Mit crossOrigin='anonymous' würde ein fehlender/
-    // gecachter CORS-Header das Laden scheitern lassen -> Platzhalter trotz
-    // korrekt gespeicherter URL.
     img.onload = () => {
-      imgCache.set(src, img);
+      imageCache.set(src, img);
       resolve();
     };
-    img.onerror = () => resolve(); // Fehler -> Platzhalter bleibt.
+    img.onerror = () => {
+      imageCache.set(src, 'error');
+      resolve();
+    };
     img.src = src;
   });
 }
@@ -104,9 +127,9 @@ export function renderReceipt(
       case 'image':
         lines.push({
           kind: 'image',
-          src: typeof e.input === 'string' ? e.input : '',
-          imgW: Number(e.width) || 0,
-          imgH: Number(e.height) || 0,
+          src: e.input ? fill(String(e.input)) : undefined,
+          imgW: Number(e.width) || undefined,
+          imgH: Number(e.height) || undefined,
         });
         break;
       case 'cut': lines.push({ kind: 'cut' }); break;
@@ -114,16 +137,21 @@ export function renderReceipt(
     }
   }
 
+  const redraw = () => renderReceipt(canvas, elements, sample);
   const contentW = width - padX * 2;
   // Vorschau-Pixel pro Drucker-Dot: die volle Bonbreite (576 Dots) füllt die
   // Inhaltsbreite der Vorschau.
   const dotToPx = contentW / RECEIPT_MAX_WIDTH;
   const imageDisplaySize = (l: Line): { w: number; h: number } => {
-    const img = l.src ? imgCache.get(l.src) : undefined;
+    const img = l.src ? getImage(l.src, redraw) : 'error';
     // Maße aus dem Element (Drucker-Dots) in Vorschau-Pixel; nie breiter als Inhalt.
-    let w = Math.min(contentW, (l.imgW || RECEIPT_MAX_WIDTH) * dotToPx);
+    const w = Math.min(contentW, (l.imgW || RECEIPT_MAX_WIDTH) * dotToPx);
     const aspect =
-      img && img.width ? img.height / img.width : l.imgW ? (l.imgH || 0) / l.imgW : 0.4;
+      img instanceof HTMLImageElement && img.naturalWidth
+        ? img.naturalHeight / img.naturalWidth
+        : l.imgW
+          ? (l.imgH || 0) / l.imgW
+          : 0.4;
     let h = w * aspect;
     if (!h) h = 90;
     return { w, h };
@@ -187,16 +215,20 @@ export function renderReceipt(
     if (l.kind === 'image') {
       const { w, h: ih } = imageDisplaySize(l);
       const x = (width - w) / 2;
-      const img = l.src ? imgCache.get(l.src) : undefined;
-      if (img) {
+      const img = l.src ? imageCache.get(l.src) : 'error';
+      if (img instanceof HTMLImageElement) {
         ctx.drawImage(img, x, y + 6, w, ih);
       } else {
-        // Noch nicht geladen / keine URL -> Platzhalter.
+        // Platzhalter, solange das Bild lädt oder die URL nicht erreichbar ist.
         ctx.fillStyle = '#e5e7eb';
         ctx.fillRect(x, y + 6, w, ih);
+        ctx.strokeStyle = '#bbb';
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(x + 0.5, y + 6.5, w - 1, ih - 1);
+        ctx.setLineDash([]);
         ctx.fillStyle = '#6b7280';
         ctx.font = '11px system-ui';
-        ctx.fillText(l.src ? 'BILD lädt…' : 'BILD (kein Upload)', x + 8, y + ih / 2);
+        ctx.fillText(img === 'error' ? 'Bild nicht ladbar' : 'Bild lädt …', x + 8, y + ih / 2);
         ctx.fillStyle = '#111';
       }
       y += h;
