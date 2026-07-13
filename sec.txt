@@ -16,3 +16,4 @@ Error: pigpio error -1 in gpioInitialise
 {"level":30,"time":1764169483874,"pid":3501,"hostname":"printable","msg":"🐷 Initialisiere pigpio für GPIO17"}
 [nodemon] app crashed - waiting for file changes before starting...
 ^C
+11ABXUUWA0PwaQT2xfvXc1_qDeSRAXC3shc8vU7bM74dX32hHwqvWBh640akc2OvYDEIUAG4YIXZYhftm1
