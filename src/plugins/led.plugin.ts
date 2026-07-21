@@ -191,8 +191,10 @@ export default fp(async fastify => {
   bus.on('print.done', async () => await applyState('done'));
   bus.on('print.error', async () => await applyState('error'));
 
-  // Initial
-  await applyState('ready');
+  // Set LEDs to ready state when server is fully ready
+  fastify.addHook('onReady', async () => {
+    await applyState('ready');
+  });
 
   fastify.addHook('onClose', async () => {
     clearTimers();
